@@ -170,6 +170,26 @@ fn test_index_select_3d_impl<B: Backend>(dev: &B) -> Result<()> {
 }
 test_both_backends!(test_index_select_3d, test_index_select_3d_impl);
 
+fn test_index_select_narrowed_indices_impl<B: Backend>(dev: &B) -> Result<()> {
+    // Regression test: narrowing indices from index 0 produces a TensorView with
+    // start_offset=0 and contiguous strides. contiguous() used to return a Tensor
+    // sharing the original (larger) storage, causing index_select to process too
+    // many indices.
+    let a: Tensor<f32, B> = Tensor::from_vec(vec![10., 20., 30., 40., 50.], (5, 1), dev)?;
+
+    // Create indices [0, 1, 2, 3, 4] then narrow to just [0, 1]
+    let all_ids = Tensor::from_vec(vec![0i64, 1, 2, 3, 4], 5, dev)?;
+    let narrowed_ids = all_ids.narrow(0, 0..2)?.contiguous()?;
+    assert_eq!(narrowed_ids.dims(), &[2]);
+
+    let b = a.index_select(&narrowed_ids, 0)?;
+    assert_eq!(b.dims(), &[2, 1]);
+    // Should select only rows 0 and 1, not all 5
+    assert_eq!(b.to_vec()?, vec![10., 20.]);
+    Ok(())
+}
+test_both_backends!(test_index_select_narrowed_indices, test_index_select_narrowed_indices_impl);
+
 // =============================================================================
 // Reduce tests
 // =============================================================================

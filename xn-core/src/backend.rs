@@ -151,6 +151,7 @@ pub trait Backend: Sized + Clone + 'static + Sync + Send + std::fmt::Debug {
         dst: &mut Self::Storage<T>,
         src: &Self::Storage<T>,
         ids: &Self::Storage<i64>,
+        num_ids: usize,
         dim: usize,
         dims: &[usize],
     ) -> Result<()>;

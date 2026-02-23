@@ -935,6 +935,7 @@ impl crate::Backend for Device {
         dst: &mut Self::Storage<T>,
         src: &Self::Storage<T>,
         ids: &Self::Storage<i64>,
+        num_ids: usize,
         dim: usize,
         dims: &[usize],
     ) -> Result<()> {
@@ -945,11 +946,11 @@ impl crate::Backend for Device {
         let func = dst.device.get_func(&kname, PTXModule::Indexing)?;
 
         const NUM_THREADS: u32 = 1024;
-        let ids_len = ids.data.len() as u32;
+        let num_ids_u32 = num_ids as u32;
         let right_size_u32 = right_size as u32;
-        let threads_x = u32::min(NUM_THREADS, ids_len);
+        let threads_x = u32::min(NUM_THREADS, num_ids_u32);
         let threads_y = u32::min(NUM_THREADS / threads_x, right_size_u32).max(1);
-        let num_blocks_x = ids_len.div_ceil(threads_x);
+        let num_blocks_x = num_ids_u32.div_ceil(threads_x);
         let num_blocks_y = right_size_u32.div_ceil(threads_y);
 
         let cfg = LaunchConfig {
@@ -958,19 +959,19 @@ impl crate::Backend for Device {
             shared_mem_bytes: 0,
         };
 
-        let ids_len_i32 = ids.len() as i32;
+        let num_ids_i32 = num_ids as i32;
         let right_size_i32 = right_size as i32;
         let src_dim_size = dims[dim];
         let src_dim_size_i32 = src_dim_size as i32;
 
         for left in 0..left_size {
             let src_offset = left * src_dim_size * right_size;
-            let dst_offset = left * ids.data.len() * right_size;
+            let dst_offset = left * num_ids * right_size;
             let src_slice = src.data.slice(src_offset..);
             let mut dst_slice = dst.data.slice_mut(dst_offset..);
 
             let mut launch_args = dst.device.stream.launch_builder(&func);
-            launch_args.arg(&ids_len_i32);
+            launch_args.arg(&num_ids_i32);
             launch_args.arg(&right_size_i32);
             launch_args.arg(&src_dim_size_i32);
             launch_args.arg(&ids.data);

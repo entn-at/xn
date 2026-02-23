@@ -700,6 +700,7 @@ impl crate::Backend for crate::CpuDevice {
         dst: &mut Self::Storage<T>,
         src: &Self::Storage<T>,
         ids: &Self::Storage<i64>,
+        num_ids: usize,
         dim: usize,
         dims: &[usize],
     ) -> Result<()> {
@@ -708,10 +709,9 @@ impl crate::Backend for crate::CpuDevice {
         let src_dim_size = dims[dim];
 
         for left in 0..left_size {
-            for (i, &idx) in ids.iter().enumerate() {
-                let idx = idx as usize;
-                let src_offset = left * src_dim_size * right_size + idx * right_size;
-                let dst_offset = left * ids.len() * right_size + i * right_size;
+            for (i, &idx) in ids.iter().enumerate().take(num_ids) {
+                let src_offset = left * src_dim_size * right_size + idx as usize * right_size;
+                let dst_offset = left * num_ids * right_size + i * right_size;
                 dst[dst_offset..dst_offset + right_size]
                     .copy_from_slice(&src[src_offset..src_offset + right_size]);
             }

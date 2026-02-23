@@ -201,7 +201,14 @@ impl<T: WithDType, B: Backend> Tensor<T, B> {
             let src_data = self.storage()?;
             let mut dst_data = out.storage_mut()?;
             let ids_data = indices.storage()?;
-            B::index_select(&mut dst_data, &*src_data, &*ids_data, dim, self.dims())?;
+            B::index_select(
+                &mut dst_data,
+                &*src_data,
+                &*ids_data,
+                indices.elem_count(),
+                dim,
+                self.dims(),
+            )?;
         }
         Ok(out)
     }
