@@ -781,6 +781,106 @@ fn test_conv_transpose1d_with_bias_impl<B: Backend>(dev: &B) -> Result<()> {
 }
 test_both_backends!(test_conv_transpose1d_with_bias, test_conv_transpose1d_with_bias_impl);
 
+fn test_conv_transpose1d_batch_simple_impl<B: Backend>(dev: &B) -> Result<()> {
+    // batch=2, in_channels=1, out_channels=1, length=3, kernel_size=3
+    #[rustfmt::skip]
+    let input: Tensor<f32, B> = Tensor::from_vec(vec![
+        1., 2., 3.,   // batch 0
+        4., 5., 6.,   // batch 1
+    ], (2, 1, 3), dev)?;
+    let kernel: Tensor<f32, B> = Tensor::from_vec(vec![1., 1., 1.], (1, 1, 3), dev)?;
+
+    let output = input.conv_transpose1d(&kernel, None, 1, 0, 0, 1)?;
+    // out_length = (3-1)*1 + 3 = 5
+    assert_eq!(output.dims(), &[2, 1, 5]);
+    // Batch 0: [1, 1+2, 1+2+3, 2+3, 3] = [1, 3, 6, 5, 3]
+    // Batch 1: [4, 4+5, 4+5+6, 5+6, 6] = [4, 9, 15, 11, 6]
+    assert_eq!(output.to_vec()?, vec![1., 3., 6., 5., 3., 4., 9., 15., 11., 6.]);
+    Ok(())
+}
+test_both_backends!(test_conv_transpose1d_batch_simple, test_conv_transpose1d_batch_simple_impl);
+
+fn test_conv_transpose1d_batch_multi_channel_impl<B: Backend>(dev: &B) -> Result<()> {
+    // batch=2, in_channels=2, out_channels=1, length=2, kernel_size=2
+    #[rustfmt::skip]
+    let input: Tensor<f32, B> = Tensor::from_vec(vec![
+        // Batch 0: in_ch0, in_ch1
+        1., 2.,   3., 4.,
+        // Batch 1: in_ch0, in_ch1
+        5., 6.,   7., 8.,
+    ], (2, 2, 2), dev)?;
+    // Kernel: [in_ch=2, out_ch=1, k=2]
+    let kernel: Tensor<f32, B> = Tensor::from_vec(vec![1., 1., 1., 1.], (2, 1, 2), dev)?;
+
+    let output = input.conv_transpose1d(&kernel, None, 1, 0, 0, 1)?;
+    // out_length = (2-1)*1 + 2 = 3
+    assert_eq!(output.dims(), &[2, 1, 3]);
+    // Batch 0: ch0 contrib [1, 1+2, 2]=[1,3,2], ch1 contrib [3, 3+4, 4]=[3,7,4]
+    //   total: [4, 10, 6]
+    // Batch 1: ch0 contrib [5, 5+6, 6]=[5,11,6], ch1 contrib [7, 7+8, 8]=[7,15,8]
+    //   total: [12, 26, 14]
+    assert_eq!(output.to_vec()?, vec![4., 10., 6., 12., 26., 14.]);
+    Ok(())
+}
+test_both_backends!(
+    test_conv_transpose1d_batch_multi_channel,
+    test_conv_transpose1d_batch_multi_channel_impl
+);
+
+fn test_conv_transpose1d_batch_with_stride_impl<B: Backend>(dev: &B) -> Result<()> {
+    // batch=3, in_channels=1, out_channels=1, length=2, kernel_size=2, stride=2
+    #[rustfmt::skip]
+    let input: Tensor<f32, B> = Tensor::from_vec(vec![
+        1., 2.,   // batch 0
+        3., 4.,   // batch 1
+        5., 6.,   // batch 2
+    ], (3, 1, 2), dev)?;
+    let kernel: Tensor<f32, B> = Tensor::from_vec(vec![1., 1.], (1, 1, 2), dev)?;
+
+    let output = input.conv_transpose1d(&kernel, None, 2, 0, 0, 1)?;
+    // out_length = (2-1)*2 + 2 = 4
+    assert_eq!(output.dims(), &[3, 1, 4]);
+    // Each input[i] contributes to output[i*stride], output[i*stride+1]
+    // Batch 0: [1, 1, 2, 2]
+    // Batch 1: [3, 3, 4, 4]
+    // Batch 2: [5, 5, 6, 6]
+    assert_eq!(output.to_vec()?, vec![1., 1., 2., 2., 3., 3., 4., 4., 5., 5., 6., 6.]);
+    Ok(())
+}
+test_both_backends!(
+    test_conv_transpose1d_batch_with_stride,
+    test_conv_transpose1d_batch_with_stride_impl
+);
+
+fn test_conv_transpose1d_batch_with_bias_impl<B: Backend>(dev: &B) -> Result<()> {
+    // batch=2, in_channels=1, out_channels=2, length=2, kernel_size=2
+    #[rustfmt::skip]
+    let input: Tensor<f32, B> = Tensor::from_vec(vec![
+        1., 2.,   // batch 0
+        3., 4.,   // batch 1
+    ], (2, 1, 2), dev)?;
+    // Kernel: [in_ch=1, out_ch=2, k=2]
+    let kernel: Tensor<f32, B> = Tensor::from_vec(vec![1., 1., 2., 2.], (1, 2, 2), dev)?;
+    let bias: Tensor<f32, B> = Tensor::from_vec(vec![10., 100.], (2,), dev)?;
+
+    let output = input.conv_transpose1d(&kernel, Some(&bias), 1, 0, 0, 1)?;
+    // out_length = (2-1)*1 + 2 = 3
+    assert_eq!(output.dims(), &[2, 2, 3]);
+    // Batch 0, out_ch 0 (kernel [1,1], bias 10): [1, 1+2, 2] + 10 = [11, 13, 12]
+    // Batch 0, out_ch 1 (kernel [2,2], bias 100): [2, 2+4, 4] + 100 = [102, 106, 104]
+    // Batch 1, out_ch 0: [3, 3+4, 4] + 10 = [13, 17, 14]
+    // Batch 1, out_ch 1: [6, 6+8, 8] + 100 = [106, 114, 108]
+    assert_eq!(
+        output.to_vec()?,
+        vec![11., 13., 12., 102., 106., 104., 13., 17., 14., 106., 114., 108.]
+    );
+    Ok(())
+}
+test_both_backends!(
+    test_conv_transpose1d_batch_with_bias,
+    test_conv_transpose1d_batch_with_bias_impl
+);
+
 // =============================================================================
 // Pad with same tests
 // =============================================================================
