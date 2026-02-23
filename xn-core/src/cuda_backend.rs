@@ -1626,28 +1626,18 @@ fn conv1d_gemm_f32(
     let gemm = GemmConfig {
         alpha: 1.0f32,
         beta: 0.0f32,
-        m: n as i32,   // rows of C (N = out_channels)
-        n: m as i32,   // cols of C (M = out_length)
-        k: k as i32,   // inner dimension
-        lda: k as i32, // leading dim of A (row stride of kernel)
-        ldb: k as i32, // leading dim of B (row stride of col)
-        ldc: n as i32, // leading dim of C (row stride of result)
+        m: n as i32,           // rows of C (N = out_channels)
+        n: (batch * m) as i32, // cols of C (M = out_length)
+        k: k as i32,           // inner dimension
+        lda: k as i32,         // leading dim of A (row stride of kernel)
+        ldb: k as i32,         // leading dim of B (row stride of col)
+        ldc: n as i32,         // leading dim of C (row stride of result)
         transa: cublasOperation_t::CUBLAS_OP_T,
         transb: cublasOperation_t::CUBLAS_OP_N,
     };
-
-    let cfg = StridedBatchedConfig {
-        batch_size: batch as i32,
-        gemm,
-        stride_a: 0,              // kernel is shared across batches
-        stride_b: (m * k) as i64, // col stride per batch
-        stride_c: (m * n) as i64, // result stride per batch
-    };
-
     unsafe {
-        device.blas.gemm_strided_batched(cfg, kernel, col, result)?;
+        device.blas.gemm(gemm, kernel, col, result)?;
     }
-
     Ok(())
 }
 
@@ -1667,7 +1657,7 @@ fn conv1d_gemm_f16(
         alpha: f16::ONE,
         beta: f16::ZERO,
         m: n as i32,
-        n: m as i32,
+        n: (batch * m) as i32,
         k: k as i32,
         lda: k as i32,
         ldb: k as i32,
@@ -1675,19 +1665,9 @@ fn conv1d_gemm_f16(
         transa: cublasOperation_t::CUBLAS_OP_T,
         transb: cublasOperation_t::CUBLAS_OP_N,
     };
-
-    let cfg = StridedBatchedConfig {
-        batch_size: batch as i32,
-        gemm,
-        stride_a: 0,
-        stride_b: (m * k) as i64,
-        stride_c: (m * n) as i64,
-    };
-
     unsafe {
-        device.blas.gemm_strided_batched(cfg, kernel, col, result)?;
+        device.blas.gemm(gemm, kernel, col, result)?;
     }
-
     Ok(())
 }
 
@@ -1707,7 +1687,7 @@ fn conv1d_gemm_bf16(
         alpha: bf16::ONE,
         beta: bf16::ZERO,
         m: n as i32,
-        n: m as i32,
+        n: (batch * m) as i32,
         k: k as i32,
         lda: k as i32,
         ldb: k as i32,
@@ -1715,19 +1695,9 @@ fn conv1d_gemm_bf16(
         transa: cublasOperation_t::CUBLAS_OP_T,
         transb: cublasOperation_t::CUBLAS_OP_N,
     };
-
-    let cfg = StridedBatchedConfig {
-        batch_size: batch as i32,
-        gemm,
-        stride_a: 0,
-        stride_b: (m * k) as i64,
-        stride_c: (m * n) as i64,
-    };
-
     unsafe {
-        device.blas.gemm_strided_batched(cfg, kernel, col, result)?;
+        device.blas.gemm(gemm, kernel, col, result)?;
     }
-
     Ok(())
 }
 

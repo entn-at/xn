@@ -550,6 +550,179 @@ fn test_conv1d_multi_channel_impl<B: Backend>(dev: &B) -> Result<()> {
 }
 test_both_backends!(test_conv1d_multi_channel, test_conv1d_multi_channel_impl);
 
+fn test_conv1d_batch_simple_impl<B: Backend>(dev: &B) -> Result<()> {
+    // batch=2, in_channels=1, length=4, kernel_size=2
+    // Use distinct values per batch to catch cross-batch contamination.
+    let input: Tensor<f32, B> =
+        Tensor::from_vec(vec![1., 2., 3., 4., 5., 6., 7., 8.], (2, 1, 4), dev)?;
+    let kernel: Tensor<f32, B> = Tensor::from_vec(vec![1., 1.], (1, 1, 2), dev)?;
+
+    let output = input.conv1d(&kernel, None, 1, 0, 1, 1)?;
+    assert_eq!(output.dims(), &[2, 1, 3]);
+    // Batch 0: [1+2, 2+3, 3+4] = [3, 5, 7]
+    // Batch 1: [5+6, 6+7, 7+8] = [11, 13, 15]
+    assert_eq!(output.to_vec()?, vec![3., 5., 7., 11., 13., 15.]);
+    Ok(())
+}
+test_both_backends!(test_conv1d_batch_simple, test_conv1d_batch_simple_impl);
+
+fn test_conv1d_batch_multi_channel_impl<B: Backend>(dev: &B) -> Result<()> {
+    // batch=2, in_channels=2, out_channels=2, length=3, kernel_size=2
+    // Input shape: [2, 2, 3]
+    #[rustfmt::skip]
+    let input: Tensor<f32, B> = Tensor::from_vec(vec![
+        // Batch 0, channel 0     Batch 0, channel 1
+        1., 2., 3.,               4., 5., 6.,
+        // Batch 1, channel 0     Batch 1, channel 1
+        7., 8., 9.,               10., 11., 12.,
+    ], (2, 2, 3), dev)?;
+    // Kernel shape: [2, 2, 2] (out_channels=2, in_channels=2, kernel_size=2)
+    // out_channel 0: uses in_ch0 with [1,0] and in_ch1 with [0,1]
+    // out_channel 1: uses in_ch0 with [0,1] and in_ch1 with [1,0]
+    #[rustfmt::skip]
+    let kernel: Tensor<f32, B> = Tensor::from_vec(vec![
+        1., 0.,  0., 1.,   // out_ch 0
+        0., 1.,  1., 0.,   // out_ch 1
+    ], (2, 2, 2), dev)?;
+
+    let output = input.conv1d(&kernel, None, 1, 0, 1, 1)?;
+    assert_eq!(output.dims(), &[2, 2, 2]);
+    // Batch 0, out_ch 0: in_ch0*[1,0] + in_ch1*[0,1] at each position
+    //   pos 0: 1*1+2*0 + 4*0+5*1 = 1+5 = 6
+    //   pos 1: 2*1+3*0 + 5*0+6*1 = 2+6 = 8
+    // Batch 0, out_ch 1: in_ch0*[0,1] + in_ch1*[1,0]
+    //   pos 0: 1*0+2*1 + 4*1+5*0 = 2+4 = 6
+    //   pos 1: 2*0+3*1 + 5*1+6*0 = 3+5 = 8
+    // Batch 1, out_ch 0:
+    //   pos 0: 7*1+8*0 + 10*0+11*1 = 7+11 = 18
+    //   pos 1: 8*1+9*0 + 11*0+12*1 = 8+12 = 20
+    // Batch 1, out_ch 1:
+    //   pos 0: 7*0+8*1 + 10*1+11*0 = 8+10 = 18
+    //   pos 1: 8*0+9*1 + 11*1+12*0 = 9+11 = 20
+    assert_eq!(output.to_vec()?, vec![6., 8., 6., 8., 18., 20., 18., 20.]);
+    Ok(())
+}
+test_both_backends!(test_conv1d_batch_multi_channel, test_conv1d_batch_multi_channel_impl);
+
+fn test_conv1d_batch_with_padding_impl<B: Backend>(dev: &B) -> Result<()> {
+    // batch=3, in_channels=1, length=3, kernel_size=3, padding=1
+    #[rustfmt::skip]
+    let input: Tensor<f32, B> = Tensor::from_vec(vec![
+        1., 2., 3.,     // batch 0
+        4., 5., 6.,     // batch 1
+        7., 8., 9.,     // batch 2
+    ], (3, 1, 3), dev)?;
+    let kernel: Tensor<f32, B> = Tensor::from_vec(vec![1., 1., 1.], (1, 1, 3), dev)?;
+
+    let output = input.conv1d(&kernel, None, 1, 1, 1, 1)?;
+    assert_eq!(output.dims(), &[3, 1, 3]);
+    // With padding=1, effective input has 0s on each side
+    // Batch 0: [0,1,2,3,0] -> [0+1+2, 1+2+3, 2+3+0] = [3, 6, 5]
+    // Batch 1: [0,4,5,6,0] -> [0+4+5, 4+5+6, 5+6+0] = [9, 15, 11]
+    // Batch 2: [0,7,8,9,0] -> [0+7+8, 7+8+9, 8+9+0] = [15, 24, 17]
+    assert_eq!(output.to_vec()?, vec![3., 6., 5., 9., 15., 11., 15., 24., 17.]);
+    Ok(())
+}
+test_both_backends!(test_conv1d_batch_with_padding, test_conv1d_batch_with_padding_impl);
+
+fn test_conv1d_batch_with_stride_impl<B: Backend>(dev: &B) -> Result<()> {
+    // batch=2, in_channels=1, length=6, kernel_size=2, stride=2
+    #[rustfmt::skip]
+    let input: Tensor<f32, B> = Tensor::from_vec(vec![
+        1., 2., 3., 4., 5., 6.,     // batch 0
+        7., 8., 9., 10., 11., 12.,  // batch 1
+    ], (2, 1, 6), dev)?;
+    let kernel: Tensor<f32, B> = Tensor::from_vec(vec![1., -1.], (1, 1, 2), dev)?;
+
+    let output = input.conv1d(&kernel, None, 2, 0, 1, 1)?;
+    // out_length = (6 - 2) / 2 + 1 = 3
+    assert_eq!(output.dims(), &[2, 1, 3]);
+    // Batch 0: [1-2, 3-4, 5-6] = [-1, -1, -1]
+    // Batch 1: [7-8, 9-10, 11-12] = [-1, -1, -1]
+    assert_eq!(output.to_vec()?, vec![-1., -1., -1., -1., -1., -1.]);
+    Ok(())
+}
+test_both_backends!(test_conv1d_batch_with_stride, test_conv1d_batch_with_stride_impl);
+
+fn test_conv1d_batch_with_bias_impl<B: Backend>(dev: &B) -> Result<()> {
+    // batch=2, in_channels=1, out_channels=2, length=3, kernel_size=2
+    #[rustfmt::skip]
+    let input: Tensor<f32, B> = Tensor::from_vec(vec![
+        1., 2., 3.,   // batch 0
+        4., 5., 6.,   // batch 1
+    ], (2, 1, 3), dev)?;
+    // Two output channels with different kernels
+    let kernel: Tensor<f32, B> = Tensor::from_vec(vec![1., 1., 1., -1.], (2, 1, 2), dev)?;
+    let bias: Tensor<f32, B> = Tensor::from_vec(vec![10., 100.], (2,), dev)?;
+
+    let output = input.conv1d(&kernel, Some(&bias), 1, 0, 1, 1)?;
+    assert_eq!(output.dims(), &[2, 2, 2]);
+    // Batch 0, out_ch 0 (kernel [1,1], bias 10): [1+2+10, 2+3+10] = [13, 15]
+    // Batch 0, out_ch 1 (kernel [1,-1], bias 100): [1-2+100, 2-3+100] = [99, 99]
+    // Batch 1, out_ch 0: [4+5+10, 5+6+10] = [19, 21]
+    // Batch 1, out_ch 1: [4-5+100, 5-6+100] = [99, 99]
+    assert_eq!(output.to_vec()?, vec![13., 15., 99., 99., 19., 21., 99., 99.]);
+    Ok(())
+}
+test_both_backends!(test_conv1d_batch_with_bias, test_conv1d_batch_with_bias_impl);
+
+fn test_conv1d_batch_large_impl<B: Backend>(dev: &B) -> Result<()> {
+    // batch=4, in_channels=3, out_channels=2, length=8, kernel_size=3
+    // Use a simple identity-like pattern: each output channel sums one input channel.
+    let batch = 4;
+    let in_ch = 3;
+    let out_ch = 2;
+    let length = 8;
+    let k_size = 3;
+
+    // Input: sequential values so each batch element is distinguishable
+    let input_data: Vec<f32> = (0..batch * in_ch * length).map(|i| i as f32).collect();
+    let input: Tensor<f32, B> = Tensor::from_vec(input_data.clone(), (batch, in_ch, length), dev)?;
+
+    // Kernel [out_ch=2, in_ch=3, k_size=3]:
+    // out_ch 0: sum across all in_channels with kernel [1, 0, 0]
+    // out_ch 1: sum across all in_channels with kernel [0, 0, 1]
+    let mut kernel_data = vec![0.0f32; out_ch * in_ch * k_size];
+    for c in 0..in_ch {
+        kernel_data[c * k_size] = 1.0; // out_ch 0, [1,0,0]
+        kernel_data[in_ch * k_size + c * k_size + 2] = 1.0; // out_ch 1, [0,0,1]
+    }
+    let kernel: Tensor<f32, B> = Tensor::from_vec(kernel_data, (out_ch, in_ch, k_size), dev)?;
+
+    let output = input.conv1d(&kernel, None, 1, 0, 1, 1)?;
+    let out_length = length - k_size + 1; // 6
+    assert_eq!(output.dims(), &[batch, out_ch, out_length]);
+
+    let result = output.to_vec()?;
+    // Verify each batch element independently
+    for b in 0..batch {
+        for pos in 0..out_length {
+            // out_ch 0 uses kernel [1,0,0] per in_channel -> picks input[ch][pos]
+            let mut expected_ch0 = 0.0f32;
+            let mut expected_ch1 = 0.0f32;
+            for c in 0..in_ch {
+                let base = b * in_ch * length + c * length;
+                expected_ch0 += input_data[base + pos]; // kernel [1,0,0] picks first
+                expected_ch1 += input_data[base + pos + 2]; // kernel [0,0,1] picks last
+            }
+            let idx_ch0 = b * out_ch * out_length + pos;
+            let idx_ch1 = b * out_ch * out_length + out_length + pos;
+            assert!(
+                (result[idx_ch0] - expected_ch0).abs() < 1e-4,
+                "batch {b} out_ch 0 pos {pos}: expected {expected_ch0}, got {}",
+                result[idx_ch0]
+            );
+            assert!(
+                (result[idx_ch1] - expected_ch1).abs() < 1e-4,
+                "batch {b} out_ch 1 pos {pos}: expected {expected_ch1}, got {}",
+                result[idx_ch1]
+            );
+        }
+    }
+    Ok(())
+}
+test_both_backends!(test_conv1d_batch_large, test_conv1d_batch_large_impl);
+
 // =============================================================================
 // Conv transpose 1d tests
 // =============================================================================
