@@ -12,6 +12,7 @@ enum PTXModule {
     Arithmetic,
     Broadcast,
     Conv,
+    Fattn,
     Fill,
     Indexing,
     Layout,
@@ -24,6 +25,7 @@ struct ModuleCache {
     arithmetic: Option<Arc<cudarc::driver::CudaModule>>,
     broadcast: Option<Arc<cudarc::driver::CudaModule>>,
     conv: Option<Arc<cudarc::driver::CudaModule>>,
+    fattn: Option<Arc<cudarc::driver::CudaModule>>,
     fill: Option<Arc<cudarc::driver::CudaModule>>,
     indexing: Option<Arc<cudarc::driver::CudaModule>>,
     layout: Option<Arc<cudarc::driver::CudaModule>>,
@@ -88,6 +90,14 @@ impl Device {
                 }
                 let m = self.cuda.load_module(crate::cuda_kernels::CONV.into())?;
                 modules.conv = Some(m.clone());
+                Ok(m)
+            }
+            PTXModule::Fattn => {
+                if let Some(ref m) = modules.fattn {
+                    return Ok(m.clone());
+                }
+                let m = self.cuda.load_module(crate::cuda_kernels::FATTN.into())?;
+                modules.fattn = Some(m.clone());
                 Ok(m)
             }
             PTXModule::Fill => {
@@ -415,6 +425,51 @@ pub fn gemm_reduced_precision_bf16() -> bool {
 
 pub fn set_gemm_reduced_precision_bf16(b: bool) {
     MM_BF16_REDUCED_PRECISION.store(b, std::sync::atomic::Ordering::Relaxed)
+}
+
+pub fn flash_attn<T: WithDType>(
+    dst: &mut Storage<T>,
+    q: &Storage<T>,
+    k: &Storage<T>,
+    v: &Storage<T>,
+    batch_size: usize,
+    num_heads: usize,
+    len_q: usize,
+    len_kv: usize,
+    head_dim: usize,
+) -> Result<()> {
+    const WARP_SIZE: usize = 32;
+    const NUM_WARPS: usize = 4;
+    const BLOCK_Q: usize = 64;
+
+    if T::DTYPE != DType::BF16 {
+        crate::bail!("flash_attn only supports bf16");
+    }
+    let func = dst.device.get_func("fattn_bf16", PTXModule::Fattn)?;
+    if head_dim != 32 && head_dim != 64 && head_dim != 128 {
+        crate::bail!("flash_attn only supports head_dim of 32, 64, or 128");
+    }
+    let bs = batch_size * num_heads;
+    let cfg = LaunchConfig {
+        grid_dim: ((bs * len_q.div_ceil(BLOCK_Q)) as u32, 1, 1),
+        block_dim: ((NUM_WARPS * WARP_SIZE) as u32, 1, 1),
+        shared_mem_bytes: u32::max(64, 64 * 3) * head_dim as u32 * 2,
+    };
+    let bs = bs as i32;
+    let len_q = len_q as i32;
+    let len_kv = len_kv as i32;
+    let head_dim = head_dim as i32;
+    let mut launch_args = dst.device.stream.launch_builder(&func);
+    launch_args.arg(&q.data);
+    launch_args.arg(&k.data);
+    launch_args.arg(&v.data);
+    launch_args.arg(&mut dst.data);
+    launch_args.arg(&bs);
+    launch_args.arg(&len_q);
+    launch_args.arg(&len_kv);
+    launch_args.arg(&head_dim);
+    unsafe { launch_args.launch(cfg) }?;
+    Ok(())
 }
 
 impl crate::Backend for Device {
