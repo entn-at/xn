@@ -446,6 +446,11 @@ pub fn flash_attn<T: WithDType>(
     if T::DTYPE != DType::BF16 {
         crate::bail!("flash_attn only supports bf16");
     }
+    if !len_q.is_multiple_of(BLOCK_Q) && !len_kv.is_multiple_of(BLOCK_KV) {
+        crate::bail!(
+            "flash_attn requires len_q to be a multiple of {BLOCK_Q} or len_kv to be a multiple of {BLOCK_KV}"
+        );
+    }
     let func = dst.device.get_func("fattn_bf16", PTXModule::Fattn)?;
     if head_dim != 32 && head_dim != 64 && head_dim != 128 {
         crate::bail!("flash_attn only supports head_dim of 32, 64, or 128");

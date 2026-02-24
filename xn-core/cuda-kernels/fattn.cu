@@ -150,9 +150,10 @@ __device__ inline void ldmatrix_x2(uint32_t regs[2], uint32_t addr) {
 }
 
 __device__ inline void ldmatrix_x4(uint32_t regs[4], uint32_t addr) {
-  asm volatile("ldmatrix.sync.aligned.m8n8.x4.shared.b16 {%0, %1, %2, %3}, [%4];"
-               : "=r"(regs[0]), "=r"(regs[1]), "=r"(regs[2]), "=r"(regs[3])
-               : "r"(addr));
+  asm volatile(
+      "ldmatrix.sync.aligned.m8n8.x4.shared.b16 {%0, %1, %2, %3}, [%4];"
+      : "=r"(regs[0]), "=r"(regs[1]), "=r"(regs[2]), "=r"(regs[3])
+      : "r"(addr));
 }
 
 __device__ inline void ldmatrix_x2_trans(uint32_t regs[2], uint32_t addr) {
@@ -162,9 +163,10 @@ __device__ inline void ldmatrix_x2_trans(uint32_t regs[2], uint32_t addr) {
 }
 
 __device__ inline void ldmatrix_x4_trans(uint32_t regs[4], uint32_t addr) {
-  asm volatile("ldmatrix.sync.aligned.m8n8.x4.trans.shared.b16 {%0, %1, %2, %3}, [%4];"
-               : "=r"(regs[0]), "=r"(regs[1]), "=r"(regs[2]), "=r"(regs[3])
-               : "r"(addr));
+  asm volatile(
+      "ldmatrix.sync.aligned.m8n8.x4.trans.shared.b16 {%0, %1, %2, %3}, [%4];"
+      : "=r"(regs[0]), "=r"(regs[1]), "=r"(regs[2]), "=r"(regs[3])
+      : "r"(addr));
 }
 
 __device__ inline void mma_m16n8k16(uint32_t A[4], uint32_t B[2], float D[4]) {
@@ -179,11 +181,12 @@ __device__ inline void mma_m16n8k16(uint32_t A[4], uint32_t B[2], float D[4]) {
 }
 
 template <int BLOCK_Q, int BLOCK_KV, int DIM, int NUM_WARPS>
-__forceinline__ __device__ void attention_v5_kernel(const nv_bfloat16 *Q, // [bs, len_q, DIM]
-                                    const nv_bfloat16 *K, // [bs, len_kv, DIM]
-                                    const nv_bfloat16 *V, // [bs, len_kv, DIM]
-                                    nv_bfloat16 *O,       // [bs, len_q, DIM]
-                                    int bs, int len_q, int len_kv) {
+__forceinline__ __device__ void
+attention_v5_kernel(const nv_bfloat16 *Q, // [bs, len_q, DIM]
+                    const nv_bfloat16 *K, // [bs, len_kv, DIM]
+                    const nv_bfloat16 *V, // [bs, len_kv, DIM]
+                    nv_bfloat16 *O,       // [bs, len_q, DIM]
+                    int bs, int len_q, int len_kv) {
 
   constexpr int TB_SIZE = NUM_WARPS * WARP_SIZE;
 
