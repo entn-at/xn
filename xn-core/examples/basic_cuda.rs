@@ -35,8 +35,8 @@ fn main() -> Result<()> {
     run_mm_benchmark(32, 1, 11264, 2048, &device)?;
     run_mm_benchmark(1, 32, 11264, 2048, &device)?;
 
-    // Benchmark flash attention
-    run_flash_attn_benchmark(1, 8, 4096, 8192, 64, &device)?;
+    // Benchmark flash attention vs matmul attention
+    run_attn_benchmarks(1, 8, 4096, 8192, 64, &device)?;
     Ok(())
 }
 
@@ -69,7 +69,7 @@ fn run_mm_benchmark(bs: usize, m: usize, n: usize, k: usize, device: &Device) ->
     Ok(())
 }
 
-fn run_flash_attn_benchmark(
+fn run_attn_benchmarks(
     batch_size: usize,
     num_heads: usize,
     len_q: usize,
@@ -78,11 +78,6 @@ fn run_flash_attn_benchmark(
     device: &Device,
 ) -> Result<()> {
     use xn::cuda_backend;
-
-    println!(
-        "\nBenchmarking flash-attn (bs={batch_size}, heads={num_heads}, \
-         q_len={len_q}, kv_len={len_kv}, head_dim={head_dim})..."
-    );
 
     let bs = batch_size * num_heads;
     let q_numel = bs * len_q * head_dim;
@@ -98,15 +93,19 @@ fn run_flash_attn_benchmark(
     let q: Tensor<half::bf16, Device> = Tensor::from_vec(q_data, (bs, len_q, head_dim), device)?;
     let k: Tensor<half::bf16, Device> = Tensor::from_vec(k_data, (bs, len_kv, head_dim), device)?;
     let v: Tensor<half::bf16, Device> = Tensor::from_vec(v_data, (bs, len_kv, head_dim), device)?;
-    let dst: Tensor<half::bf16, Device> =
-        Tensor::from_vec(vec![half::bf16::ZERO; q_numel], (bs, len_q, head_dim), device)?;
 
-    // Warmup
+    // --- Flash attention ---
+    println!(
+        "\nBenchmarking flash-attn (bs={batch_size}, heads={num_heads}, \
+         q_len={len_q}, kv_len={len_kv}, head_dim={head_dim})..."
+    );
+    let flash_dst: Tensor<half::bf16, Device> =
+        Tensor::from_vec(vec![half::bf16::ZERO; q_numel], (bs, len_q, head_dim), device)?;
     {
         let q_s = q.storage()?;
         let k_s = k.storage()?;
         let v_s = v.storage()?;
-        let mut dst_s = dst.storage_mut()?;
+        let mut dst_s = flash_dst.storage_mut()?;
         cuda_backend::flash_attn(
             &mut dst_s, &q_s, &k_s, &v_s, batch_size, num_heads, len_q, len_kv, head_dim,
         )?;
@@ -119,7 +118,7 @@ fn run_flash_attn_benchmark(
         let q_s = q.storage()?;
         let k_s = k.storage()?;
         let v_s = v.storage()?;
-        let mut dst_s = dst.storage_mut()?;
+        let mut dst_s = flash_dst.storage_mut()?;
         cuda_backend::flash_attn(
             &mut dst_s, &q_s, &k_s, &v_s, batch_size, num_heads, len_q, len_kv, head_dim,
         )?;
@@ -128,12 +127,48 @@ fn run_flash_attn_benchmark(
     let elapsed = start.elapsed();
 
     let avg_us = elapsed.as_micros() as f64 / num_iters as f64;
-    // FLOPs for attention: 2 * bs * num_heads * len_q * len_kv * head_dim (Q@K^T)
-    //                    + 2 * bs * num_heads * len_q * len_kv * head_dim (scores@V)
     let flops =
         4.0 * batch_size as f64 * num_heads as f64 * len_q as f64 * len_kv as f64 * head_dim as f64;
     let tflops = flops * num_iters as f64 / elapsed.as_secs_f64() / 1e12;
     println!("{num_iters} iters in {elapsed:.2?} ({avg_us:.1} us/iter, {tflops:.2} TFLOP/s)");
+
+    // --- Matmul attention ---
+    println!(
+        "\nBenchmarking matmul-attn (bs={batch_size}, heads={num_heads}, \
+         q_len={len_q}, kv_len={len_kv}, head_dim={head_dim})..."
+    );
+    let scale = half::bf16::from_f32(1.0 / (head_dim as f32).sqrt());
+
+    // Warmup
+    let matmul_dst = {
+        let scores = q.matmul_t(&k)?.scale(scale)?;
+        let weights = scores.softmax()?;
+        weights.matmul(&v)?
+    };
+    device.synchronize()?;
+
+    let start = std::time::Instant::now();
+    for _ in 0..num_iters {
+        let scores = q.matmul_t(&k)?.scale(scale)?;
+        let weights = scores.softmax()?;
+        let _out = weights.matmul(&v)?;
+    }
+    device.synchronize()?;
+    let elapsed = start.elapsed();
+
+    let avg_us = elapsed.as_micros() as f64 / num_iters as f64;
+    let tflops = flops * num_iters as f64 / elapsed.as_secs_f64() / 1e12;
+    println!("{num_iters} iters in {elapsed:.2?} ({avg_us:.1} us/iter, {tflops:.2} TFLOP/s)");
+
+    // --- Compare outputs ---
+    let flash_vec = flash_dst.to_vec()?;
+    let matmul_vec = matmul_dst.to_vec()?;
+    let max_diff = flash_vec
+        .iter()
+        .zip(matmul_vec.iter())
+        .map(|(a, b)| (a.to_f32() - b.to_f32()).abs())
+        .fold(0.0f32, f32::max);
+    println!("\nMax abs difference (flash vs matmul): {max_diff}");
 
     Ok(())
 }
