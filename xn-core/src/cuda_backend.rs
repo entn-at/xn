@@ -441,6 +441,7 @@ pub fn flash_attn<T: WithDType>(
     const WARP_SIZE: usize = 32;
     const NUM_WARPS: usize = 4;
     const BLOCK_Q: usize = 64;
+    const BLOCK_KV: usize = 64;
 
     if T::DTYPE != DType::BF16 {
         crate::bail!("flash_attn only supports bf16");
@@ -453,7 +454,7 @@ pub fn flash_attn<T: WithDType>(
     let cfg = LaunchConfig {
         grid_dim: ((bs * len_q.div_ceil(BLOCK_Q)) as u32, 1, 1),
         block_dim: ((NUM_WARPS * WARP_SIZE) as u32, 1, 1),
-        shared_mem_bytes: u32::max(64, 64 * 3) * head_dim as u32 * 2,
+        shared_mem_bytes: (usize::max(BLOCK_Q, BLOCK_KV * 3) * head_dim) as u32 * 2,
     };
     let bs = bs as i32;
     let len_q = len_q as i32;
