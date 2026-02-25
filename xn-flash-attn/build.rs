@@ -62,7 +62,7 @@ fn main() -> Result<()> {
             let path = PathBuf::from(
                 std::env::var("HOME").context("HOME not set")?,
             )
-            .join("xn/build");
+            .join(".cache/xn");
             std::fs::create_dir_all(&path)?;
             path.canonicalize()?
         }
