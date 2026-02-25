@@ -74,7 +74,7 @@ fn main() -> Result<()> {
         .and_then(|m| m.modified())
         .ok()
         .zip(newest_source_mtime())
-        .map_or(false, |(lib_mtime, src_mtime)| lib_mtime >= src_mtime);
+        .is_some_and(|(lib_mtime, src_mtime)| lib_mtime >= src_mtime);
 
     if !lib_is_fresh {
         let kernels = KERNEL_FILES.iter().collect();
@@ -94,11 +94,11 @@ fn main() -> Result<()> {
             .arg("--verbose");
 
         let mut is_target_msvc = false;
-        if let Ok(target) = std::env::var("TARGET") {
-            if target.contains("msvc") {
-                is_target_msvc = true;
-                builder = builder.arg("-D_USE_MATH_DEFINES");
-            }
+        if let Ok(target) = std::env::var("TARGET")
+            && target.contains("msvc")
+        {
+            is_target_msvc = true;
+            builder = builder.arg("-D_USE_MATH_DEFINES");
         }
 
         if !is_target_msvc {
@@ -108,7 +108,7 @@ fn main() -> Result<()> {
         builder.build_lib(out_file);
     }
 
-    let is_target_msvc = std::env::var("TARGET").map_or(false, |t| t.contains("msvc"));
+    let is_target_msvc = std::env::var("TARGET").is_ok_and(|t| t.contains("msvc"));
     println!("cargo:rustc-link-search={}", build_dir.display());
     println!("cargo:rustc-link-lib=flashattention");
     println!("cargo:rustc-link-lib=dylib=cudart");
