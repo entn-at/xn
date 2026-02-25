@@ -1386,3 +1386,61 @@ fn test_to_preserves_shape_impl<B: Backend>(dev: &B) -> Result<()> {
     Ok(())
 }
 test_both_backends!(test_to_preserves_shape, test_to_preserves_shape_impl);
+
+// =============================================================================
+// Random generation tests
+// =============================================================================
+
+fn test_rand_uniform_impl<B: Backend>(dev: &B) -> Result<()> {
+    let t: Tensor<f32, B> = Tensor::from_vec(vec![0.0; 1000], 1000, dev)?;
+    let r = t.rand_uniform_like()?;
+    assert_eq!(r.dims(), &[1000]);
+    let vals = r.to_vec()?;
+    for &v in &vals {
+        assert!((0.0..=1.0).contains(&v), "rand_uniform value {v} out of [0, 1]");
+    }
+    // Check it's not all the same value (extremely unlikely for 1000 elements).
+    assert!(vals.windows(2).any(|w| w[0] != w[1]));
+    Ok(())
+}
+test_both_backends!(test_rand_uniform, test_rand_uniform_impl);
+
+fn test_rand_uniform_shape_impl<B: Backend>(dev: &B) -> Result<()> {
+    let t: Tensor<f32, B> = Tensor::from_vec(vec![0.0], 1, dev)?;
+    let r = t.rand_uniform((4, 8))?;
+    assert_eq!(r.dims(), &[4, 8]);
+    let vals = r.to_vec()?;
+    assert_eq!(vals.len(), 32);
+    for &v in &vals {
+        assert!((0.0..=1.0).contains(&v), "rand_uniform value {v} out of [0, 1]");
+    }
+    Ok(())
+}
+test_both_backends!(test_rand_uniform_shape, test_rand_uniform_shape_impl);
+
+fn test_randn_impl<B: Backend>(dev: &B) -> Result<()> {
+    let t: Tensor<f32, B> = Tensor::from_vec(vec![0.0; 1000], 1000, dev)?;
+    let r = t.randn_like(0.0, 1.0)?;
+    assert_eq!(r.dims(), &[1000]);
+    let vals = r.to_vec()?;
+    for &v in &vals {
+        assert!(v.is_finite(), "randn value is not finite: {v}");
+    }
+    // Check it's not all the same value.
+    assert!(vals.windows(2).any(|w| w[0] != w[1]));
+    Ok(())
+}
+test_both_backends!(test_randn, test_randn_impl);
+
+fn test_randn_shape_impl<B: Backend>(dev: &B) -> Result<()> {
+    let t: Tensor<f32, B> = Tensor::from_vec(vec![0.0], 1, dev)?;
+    let r = t.randn((4, 8), 5.0, 0.1)?;
+    assert_eq!(r.dims(), &[4, 8]);
+    let vals = r.to_vec()?;
+    assert_eq!(vals.len(), 32);
+    for &v in &vals {
+        assert!(v.is_finite(), "randn value is not finite: {v}");
+    }
+    Ok(())
+}
+test_both_backends!(test_randn_shape, test_randn_shape_impl);
