@@ -52,6 +52,34 @@ macro_rules! binary_op {
     };
 }
 
+impl<B: Backend> Tensor<f32, B> {
+    pub fn randn_like(&self, mean: f32, std: f32) -> Result<Self> {
+        let result = unsafe { Tensor::alloc_uninit(self.shape.clone(), self.device()) }?;
+        result.randn_(mean, std)?;
+        Ok(result)
+    }
+
+    pub fn rand_uniform_like(&self) -> Result<Self> {
+        let result = unsafe { Tensor::alloc_uninit(self.shape.clone(), self.device()) }?;
+        result.rand_uniform_()?;
+        Ok(result)
+    }
+
+    pub fn randn(&self, shape: impl Into<crate::Shape>, mean: f32, std: f32) -> Result<Self> {
+        let shape = shape.into();
+        let result = unsafe { Tensor::alloc_uninit(shape, self.device()) }?;
+        result.randn_(mean, std)?;
+        Ok(result)
+    }
+
+    pub fn rand_uniform(&self, shape: impl Into<crate::Shape>) -> Result<Self> {
+        let shape = shape.into();
+        let result = unsafe { Tensor::alloc_uninit(shape, self.device()) }?;
+        result.rand_uniform_()?;
+        Ok(result)
+    }
+}
+
 impl<T: WithDType, B: Backend> Tensor<T, B> {
     pub fn binary(&self, other: &Self, op: BinaryOp) -> Result<Self> {
         check_same_shape(self, other, op.as_str())?;

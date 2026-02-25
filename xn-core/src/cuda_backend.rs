@@ -7,6 +7,9 @@ use cudarc::driver::{
 use half::{bf16, f16};
 use std::sync::{Arc, Mutex};
 
+struct CudaRng(cudarc::curand::CudaRng);
+unsafe impl Send for CudaRng {}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 enum PTXModule {
     Arithmetic,
@@ -38,6 +41,7 @@ pub struct Device {
     cuda: Arc<CudaContext>,
     stream: Arc<CudaStream>,
     blas: Arc<cudarc::cublas::CudaBlas>,
+    curand: Arc<Mutex<CudaRng>>,
     /// Cache for loaded PTX modules
     modules: Arc<Mutex<ModuleCache>>,
 }
@@ -53,11 +57,13 @@ impl Device {
         let cuda = cudarc::driver::CudaContext::new(ordinal)?;
         let stream = cuda.default_stream();
         let blas = cudarc::cublas::CudaBlas::new(stream.clone())?;
+        let curand = cudarc::curand::CudaRng::new(299792458, stream.clone())?;
         Ok(Self {
             cuda,
             stream,
             blas: Arc::new(blas),
             modules: Arc::new(Mutex::new(Default::default())),
+            curand: Arc::new(Mutex::new(CudaRng(curand))),
         })
     }
 
@@ -516,6 +522,20 @@ impl crate::Backend for Device {
         launch_args.arg(&elem);
         launch_args.arg(&len);
         unsafe { launch_args.launch(cfg) }?;
+        Ok(())
+    }
+
+    fn rand_uniform(dst: &mut Self::Storage<f32>, len: usize) -> Result<()> {
+        let curand = dst.device.curand.lock().unwrap();
+        let mut dst = dst.data.slice_mut(..len);
+        curand.0.fill_with_uniform(&mut dst)?;
+        Ok(())
+    }
+
+    fn randn(dst: &mut Self::Storage<f32>, len: usize, mean: f32, std: f32) -> Result<()> {
+        let curand = dst.device.curand.lock().unwrap();
+        let mut dst = dst.data.slice_mut(..len);
+        curand.0.fill_with_normal(&mut dst, mean, std)?;
         Ok(())
     }
 

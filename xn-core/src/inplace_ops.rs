@@ -178,6 +178,22 @@ impl<T: WithDType, B: Backend> Tensor<T, B> {
     }
 }
 
+impl<B: Backend> Tensor<f32, B> {
+    pub fn randn_(&self, mean: f32, std: f32) -> Result<()> {
+        let len = self.elem_count();
+        let mut dst = self.storage_mut()?;
+        B::randn(&mut *dst, len, mean, std)?;
+        Ok(())
+    }
+
+    pub fn rand_uniform_(&self) -> Result<()> {
+        let len = self.elem_count();
+        let mut dst = self.storage_mut()?;
+        B::rand_uniform(&mut *dst, len)?;
+        Ok(())
+    }
+}
+
 impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
     pub fn unary_(&self, src: &Self, op: UnaryOp) -> Result<()> {
         check_same_shape(&self.shape, &src.shape, op.as_str())?;

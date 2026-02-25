@@ -411,6 +411,27 @@ impl crate::Backend for crate::CpuDevice {
         Ok(())
     }
 
+    fn rand_uniform(dst: &mut Self::Storage<f32>, len: usize) -> Result<()> {
+        dst.par_iter_mut().take(len).for_each(|v| {
+            *v = rand::random::<f32>();
+        });
+        Ok(())
+    }
+
+    fn randn(dst: &mut Self::Storage<f32>, len: usize, mean: f32, std: f32) -> Result<()> {
+        use rand_distr::Distribution;
+
+        let distr = match rand_distr::Normal::<f32>::new(mean, std) {
+            Ok(d) => d,
+            Err(e) => crate::bail!("failed to create normal distribution for randn: {e}"),
+        };
+        dst.iter_mut().take(len).for_each(|v| {
+            let mut rng = rand::rng();
+            *v = distr.sample(&mut rng);
+        });
+        Ok(())
+    }
+
     fn fill<T: WithDType>(dst: &mut Self::Storage<T>, v: T, l: usize) -> Result<()> {
         dst[..l].fill(v);
         Ok(())

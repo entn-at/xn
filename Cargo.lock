@@ -3604,6 +3604,7 @@ dependencies = [
  "num_cpus",
  "paste",
  "rand",
+ "rand_distr",
  "rayon",
  "safetensors",
  "serde_json",

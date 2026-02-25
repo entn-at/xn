@@ -74,6 +74,10 @@ pub enum Error {
 
     #[cfg(feature = "cuda")]
     #[error(transparent)]
+    Curand(cudarc::curand::result::CurandError),
+
+    #[cfg(feature = "cuda")]
+    #[error(transparent)]
     CudaDriver(cudarc::driver::DriverError),
 }
 
@@ -81,6 +85,13 @@ pub enum Error {
 impl From<cudarc::driver::DriverError> for Error {
     fn from(value: cudarc::driver::DriverError) -> Self {
         Self::CudaDriver(value).bt()
+    }
+}
+
+#[cfg(feature = "cuda")]
+impl From<cudarc::curand::result::CurandError> for Error {
+    fn from(value: cudarc::curand::result::CurandError) -> Self {
+        Self::Curand(value).bt()
     }
 }
 
