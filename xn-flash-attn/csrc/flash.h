@@ -9,8 +9,6 @@
 #include <cuda.h>
 #include <vector>
 
-#include <ATen/cuda/CUDAGeneratorImpl.h> // For at::Generator and at::PhiloxCudaState
-
 namespace FLASH_NAMESPACE {
 constexpr int TOTAL_DIM = 0;
 constexpr int H_DIM = 1;
@@ -119,7 +117,8 @@ struct Flash_fwd_params : public Qkv_params {
     float softcap;
 
     // Random state.
-    at::PhiloxCudaState philox_args;
+    unsigned long long philox_seed;
+    unsigned long long philox_offset;
 
     // Pointer to the RNG seed (idx 0) and offset (idx 1).
     uint64_t * rng_state;
