@@ -7,11 +7,18 @@ using namespace flash;
 
 void run_mha_fwd(Flash_fwd_params &params, cudaStream_t stream) {
   FP16_SWITCH(!params.is_bf16, [&] {
-      HEADDIM_SWITCH(params.d, [&] {
+      // Only instantiate head dims 64 and 128 (the ones we compile kernels for).
+      if (params.d <= 64) {
+          constexpr static int kHeadDim = 64;
           BOOL_SWITCH(params.is_causal, Is_causal, [&] {
               run_mha_fwd_<elem_type, kHeadDim, Is_causal>(params, stream);
           });
-      });
+      } else if (params.d <= 128) {
+          constexpr static int kHeadDim = 128;
+          BOOL_SWITCH(params.is_causal, Is_causal, [&] {
+              run_mha_fwd_<elem_type, kHeadDim, Is_causal>(params, stream);
+          });
+      }
   });
 }
 
