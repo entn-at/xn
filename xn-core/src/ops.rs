@@ -1,3 +1,4 @@
+use crate::error::Context;
 use crate::{Backend, BinaryOp, Dim, Error, Result, Tensor, TensorOrView, WithDType, WithDTypeF};
 
 /// Compute the broadcast output shape for two input shapes.
@@ -146,8 +147,14 @@ impl<T: WithDType, B: Backend> Tensor<T, B> {
 
     /// Cast tensor to a different dtype.
     pub fn to<U: WithDType>(&self) -> Result<Tensor<U, B>> {
-        let result = unsafe { Tensor::alloc_uninit(self.shape.clone(), self.device()) }?;
-        result.to_dtype_(self)?;
+        let result = if T::DTYPE == U::DTYPE {
+            let slf = self as &dyn std::any::Any;
+            slf.downcast_ref::<Tensor<U, B>>().context("failed to downcast tensor in to()")?.clone()
+        } else {
+            let result = unsafe { Tensor::alloc_uninit(self.shape.clone(), self.device()) }?;
+            result.to_dtype_(self)?;
+            result
+        };
         Ok(result)
     }
 
