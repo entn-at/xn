@@ -69,29 +69,33 @@ extern "C" void run_mha(
     float softcap
 ) {
     Flash_fwd_params params;
-    // Reset the parameters
     memset(&params, 0, sizeof(params));
 
-    // Set the pointers and strides.
+    // Set the pointers.
     params.q_ptr = q_ptr;
     params.k_ptr = k_ptr;
     params.v_ptr = v_ptr;
     params.o_ptr = o_ptr;
+    params.oaccum_ptr = nullptr;
 
+    params.p_ptr = nullptr; // used for `return_softmax`
     params.softmax_lse_ptr = softmax_lse_ptr;
-    params.alibi_slopes_ptr = alibi_slopes_ptr;
+    params.softmax_lseaccum_ptr = nullptr;
 
-    // All stride are in elements, not bytes.
+    params.alibi_slopes_ptr = alibi_slopes_ptr;
+    params.alibi_slopes_batch_stride = alibi_slopes_batch_stride;
+
+    // All strides are in elements, not bytes.
     params.q_batch_stride = q_batch_stride;
     params.k_batch_stride = k_batch_stride;
     params.v_batch_stride = v_batch_stride;
     params.o_batch_stride = o_batch_stride;
-    params.alibi_slopes_batch_stride = alibi_slopes_batch_stride;
 
     params.q_row_stride = q_row_stride;
     params.k_row_stride = k_row_stride;
     params.v_row_stride = v_row_stride;
     params.o_row_stride = o_row_stride;
+
     params.q_head_stride = q_head_stride;
     params.k_head_stride = k_head_stride;
     params.v_head_stride = v_head_stride;
@@ -104,39 +108,75 @@ extern "C" void run_mha(
     params.h_h_k_ratio = h / h_k;
     params.seqlen_q = seqlen_q;
     params.seqlen_k = seqlen_k;
+    params.seqlen_knew = 0;
     params.seqlen_q_rounded = seqlen_q_rounded;
     params.seqlen_k_rounded = seqlen_k_rounded;
-    params.total_q = total_q;
     params.d = d;
     params.d_rounded = d_rounded;
+    params.rotary_dim = 0;
+    params.total_q = total_q;
 
     // Set the different scale values.
     if (softcap > 0.0) {
         params.softcap = softmax_scale / softcap;
         params.scale_softmax = softcap;
         params.scale_softmax_log2 = softcap * M_LOG2E;
-    } else{
-        // Remove potential NaN
+    } else {
         params.softcap = 0.0;
         params.scale_softmax = softmax_scale;
         params.scale_softmax_log2 = softmax_scale * M_LOG2E;
     }
 
-    params.p_dropout = 1.; // probability to keep
+    // Cumulative sequence length pointers.
+    params.cu_seqlens_q = cu_seqlens_q_ptr;
+    params.cu_seqlens_k = cu_seqlens_k_ptr;
+    params.leftpad_k = leftpad_k_ptr;
+    params.seqused_k = seqused_k_ptr;
+
+    // Block-sparse mask.
+    params.blockmask = nullptr;
+
+    // KV cache append (knew/vnew).
+    params.knew_ptr = nullptr;
+    params.vnew_ptr = nullptr;
+    params.knew_batch_stride = 0;
+    params.vnew_batch_stride = 0;
+    params.knew_row_stride = 0;
+    params.vnew_row_stride = 0;
+    params.knew_head_stride = 0;
+    params.vnew_head_stride = 0;
+
+    // Rotary embedding.
+    params.rotary_cos_ptr = nullptr;
+    params.rotary_sin_ptr = nullptr;
+    params.is_rotary_interleaved = false;
+
+    // KV cache indexing.
+    params.cache_batch_idx = nullptr;
+
+    // Paged KV cache.
+    params.block_table = nullptr;
+    params.block_table_batch_stride = 0;
+    params.page_block_size = 0;
+
+    // Dropout (disabled: probability to keep = 1).
+    params.p_dropout = 1.f;
     params.p_dropout_in_uint8_t = uint8_t(std::floor(params.p_dropout * 255.0));
     params.rp_dropout = 1.f / params.p_dropout;
     params.scale_softmax_rp_dropout = params.rp_dropout * params.scale_softmax;
-    params.is_bf16 = is_bf16;
-    params.cu_seqlens_q = cu_seqlens_q_ptr;
-    params.cu_seqlens_k = cu_seqlens_k_ptr;
-    params.seqused_k = seqused_k_ptr;
-    params.leftpad_k = leftpad_k_ptr;
-    params.p_ptr = nullptr; // used for `return_softmax`.
 
-    params.is_causal = is_causal;
+    // Local window size.
     params.window_size_left = window_size_left;
     params.window_size_right = window_size_right;
 
+    // Random state (unused without dropout).
+    params.philox_seed = 0;
+    params.philox_offset = 0;
+    params.rng_state = nullptr;
+
+    // Flags.
+    params.is_bf16 = is_bf16;
+    params.is_causal = is_causal;
     params.is_seqlens_k_cumulative = is_seqlens_k_cumulative;
     params.num_splits = 1;
     params.unpadded_lse = unpadded_lse;
