@@ -41,7 +41,7 @@ tracing-chrome = "0.7.2"
 bindgen_cuda = { version = "0.1.6", optional = true }
 
 [features]
-default = ["cuda"]
+default = []
 accelerate = ["dep:libc"]
 audio = ["dep:kaudio"]
 cuda = ["dep:cudarc", "dep:bindgen_cuda"]
