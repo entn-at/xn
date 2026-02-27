@@ -228,55 +228,81 @@ __device__ void conv_transpose1d_direct_kernel(
 }
 
 // ============================================================================
-// Transpose kernel: [B, L, C] -> [B, C, L]
+// Tiled transpose kernel: [B, L, C] -> [B, C, L]
+// Uses shared memory to coalesce both reads and writes.
+// Grid: (ceil(C/TILE), ceil(L/TILE), B), Block: (TILE, BLOCK_ROWS)
 // ============================================================================
 
-template <typename T>
+template <typename T, int TILE_DIM = 32, int BLOCK_ROWS = 8>
 __device__ void transpose_blc_to_bcl(
-    const size_t numel,
-    const size_t batch,
     const size_t length,
     const size_t channels,
     const T *src,
     T *dst
 ) {
-    const size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (idx >= numel) return;
+    __shared__ T tile[TILE_DIM][TILE_DIM + 1];
 
-    // src layout: [B, L, C]
-    const size_t c_idx = idx % channels;
-    const size_t l_idx = (idx / channels) % length;
-    const size_t b_idx = idx / (channels * length);
+    const size_t b = blockIdx.z;
+    const size_t lc = length * channels;
 
-    // dst layout: [B, C, L]
-    const size_t dst_idx = b_idx * channels * length + c_idx * length + l_idx;
-    dst[dst_idx] = src[idx];
+    // Load: src[b, l, c] — threadIdx.x along C (contiguous) → coalesced reads
+    int c = blockIdx.x * TILE_DIM + threadIdx.x;
+    int l = blockIdx.y * TILE_DIM + threadIdx.y;
+
+    for (int j = 0; j < TILE_DIM; j += BLOCK_ROWS) {
+        if (c < (int)channels && (l + j) < (int)length)
+            tile[threadIdx.y + j][threadIdx.x] = src[b * lc + (l + j) * channels + c];
+    }
+
+    __syncthreads();
+
+    // Store: dst[b, c, l] — threadIdx.x along L (contiguous) → coalesced writes
+    int l2 = blockIdx.y * TILE_DIM + threadIdx.x;
+    int c2 = blockIdx.x * TILE_DIM + threadIdx.y;
+
+    for (int j = 0; j < TILE_DIM; j += BLOCK_ROWS) {
+        if (l2 < (int)length && (c2 + j) < (int)channels)
+            dst[b * lc + (c2 + j) * length + l2] = tile[threadIdx.x][threadIdx.y + j];
+    }
 }
 
 // ============================================================================
-// Transpose kernel: [B, C, L] -> [B, L, C]
+// Tiled transpose kernel: [B, C, L] -> [B, L, C]
+// Uses shared memory to coalesce both reads and writes.
+// Grid: (ceil(L/TILE), ceil(C/TILE), B), Block: (TILE, BLOCK_ROWS)
 // ============================================================================
 
-template <typename T>
+template <typename T, int TILE_DIM = 32, int BLOCK_ROWS = 8>
 __device__ void transpose_bcl_to_blc(
-    const size_t numel,
-    const size_t batch,
     const size_t channels,
     const size_t length,
     const T *src,
     T *dst
 ) {
-    const size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (idx >= numel) return;
+    __shared__ T tile[TILE_DIM][TILE_DIM + 1];
 
-    // src layout: [B, C, L]
-    const size_t l_idx = idx % length;
-    const size_t c_idx = (idx / length) % channels;
-    const size_t b_idx = idx / (length * channels);
+    const size_t b = blockIdx.z;
+    const size_t cl = channels * length;
 
-    // dst layout: [B, L, C]
-    const size_t dst_idx = b_idx * length * channels + l_idx * channels + c_idx;
-    dst[dst_idx] = src[idx];
+    // Load: src[b, c, l] — threadIdx.x along L (contiguous) → coalesced reads
+    int l = blockIdx.x * TILE_DIM + threadIdx.x;
+    int c = blockIdx.y * TILE_DIM + threadIdx.y;
+
+    for (int j = 0; j < TILE_DIM; j += BLOCK_ROWS) {
+        if (l < (int)length && (c + j) < (int)channels)
+            tile[threadIdx.y + j][threadIdx.x] = src[b * cl + (c + j) * length + l];
+    }
+
+    __syncthreads();
+
+    // Store: dst[b, l, c] — threadIdx.x along C (contiguous) → coalesced writes
+    int c2 = blockIdx.y * TILE_DIM + threadIdx.x;
+    int l2 = blockIdx.x * TILE_DIM + threadIdx.y;
+
+    for (int j = 0; j < TILE_DIM; j += BLOCK_ROWS) {
+        if (c2 < (int)channels && (l2 + j) < (int)length)
+            dst[b * cl + (l2 + j) * channels + c2] = tile[threadIdx.x][threadIdx.y + j];
+    }
 }
 
 // ============================================================================
@@ -358,26 +384,22 @@ extern "C" __global__ void conv_transpose1d_direct_##RUST_NAME( \
 
 #define TRANSPOSE_BLC_BCL_OP(TYPENAME, RUST_NAME) \
 extern "C" __global__ void transpose_blc_bcl_##RUST_NAME( \
-    const size_t numel, \
-    const size_t batch, \
     const size_t length, \
     const size_t channels, \
     const TYPENAME *src, \
     TYPENAME *dst \
 ) { \
-    transpose_blc_to_bcl<TYPENAME>(numel, batch, length, channels, src, dst); \
+    transpose_blc_to_bcl<TYPENAME>(length, channels, src, dst); \
 }
 
 #define TRANSPOSE_BCL_BLC_OP(TYPENAME, RUST_NAME) \
 extern "C" __global__ void transpose_bcl_blc_##RUST_NAME( \
-    const size_t numel, \
-    const size_t batch, \
     const size_t channels, \
     const size_t length, \
     const TYPENAME *src, \
     TYPENAME *dst \
 ) { \
-    transpose_bcl_to_blc<TYPENAME>(numel, batch, channels, length, src, dst); \
+    transpose_bcl_to_blc<TYPENAME>(channels, length, src, dst); \
 }
 
 #define ALL_CONV_OPS(TYPENAME, RUST_NAME) \

@@ -1628,11 +1628,19 @@ fn conv1d_im2col<T: WithDTypeF>(
     // Step 3: Transpose from [B, L_out, out_channels] to [B, out_channels, L_out]
     let kname = format!("transpose_blc_bcl_{}", T::DTYPE.cuda_name());
     let func = dst.device.get_func(&kname, PTXModule::Conv)?;
-    let cfg = LaunchConfig::for_num_elems(result_numel as u32);
+    const TILE: u32 = 32;
+    const BLOCK_ROWS: u32 = 8;
+    let cfg = LaunchConfig {
+        grid_dim: (
+            (out_channels as u32).div_ceil(TILE),
+            (out_length as u32).div_ceil(TILE),
+            batch as u32,
+        ),
+        block_dim: (TILE, BLOCK_ROWS, 1),
+        shared_mem_bytes: 0,
+    };
 
     let mut launch_args = dst.device.stream.launch_builder(&func);
-    launch_args.arg(&result_numel);
-    launch_args.arg(&batch);
     launch_args.arg(&out_length);
     launch_args.arg(&out_channels);
     launch_args.arg(&result);
@@ -1859,11 +1867,19 @@ fn conv_transpose1d_col2im<T: WithDTypeF>(
 
     let kname = format!("transpose_bcl_blc_{}", T::DTYPE.cuda_name());
     let func = dst.device.get_func(&kname, PTXModule::Conv)?;
-    let cfg = LaunchConfig::for_num_elems(src_numel as u32);
+    const TILE: u32 = 32;
+    const BLOCK_ROWS: u32 = 8;
+    let cfg = LaunchConfig {
+        grid_dim: (
+            (length as u32).div_ceil(TILE),
+            (in_channels as u32).div_ceil(TILE),
+            batch as u32,
+        ),
+        block_dim: (TILE, BLOCK_ROWS, 1),
+        shared_mem_bytes: 0,
+    };
 
     let mut launch_args = dst.device.stream.launch_builder(&func);
-    launch_args.arg(&src_numel);
-    launch_args.arg(&batch);
     launch_args.arg(&in_channels);
     launch_args.arg(&length);
     launch_args.arg(&src.data);
