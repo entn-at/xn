@@ -201,6 +201,48 @@ __device__ void broadcast_binary_lhs_col(
 }
 
 // ============================================================================
+// Optimized kernel: rhs broadcasts along middle dim of 3D (rhs_strides = [dim2, 0, 1])
+// lhs is contiguous, rhs has shape [dim0, 1, dim2] broadcast to [dim0, dim1, dim2]
+// ============================================================================
+
+template<typename T, typename Op>
+__device__ void broadcast_binary_rhs_3d_mid(
+    const size_t numel,
+    const size_t dim12, // dim1 * dim2
+    const size_t dim2,
+    const T *lhs,
+    const T *rhs,
+    T *dst,
+    Op op
+) {
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= numel) return;
+    unsigned int rhs_idx = (idx / dim12) * dim2 + idx % dim2;
+    dst[idx] = op(lhs[idx], rhs[rhs_idx]);
+}
+
+// ============================================================================
+// Optimized kernel: lhs broadcasts along middle dim of 3D (lhs_strides = [dim2, 0, 1])
+// rhs is contiguous, lhs has shape [dim0, 1, dim2] broadcast to [dim0, dim1, dim2]
+// ============================================================================
+
+template<typename T, typename Op>
+__device__ void broadcast_binary_lhs_3d_mid(
+    const size_t numel,
+    const size_t dim12, // dim1 * dim2
+    const size_t dim2,
+    const T *lhs,
+    const T *rhs,
+    T *dst,
+    Op op
+) {
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= numel) return;
+    unsigned int lhs_idx = (idx / dim12) * dim2 + idx % dim2;
+    dst[idx] = op(lhs[lhs_idx], rhs[idx]);
+}
+
+// ============================================================================
 // Kernel instantiation macros
 // ============================================================================
 
@@ -270,13 +312,39 @@ extern "C" __global__ void broadcast_##OP_NAME##_lhs_col_##RUST_NAME( \
     broadcast_binary_lhs_col<TYPENAME, OP_TYPE<TYPENAME>>(numel, dim1, lhs, rhs, dst, OP_TYPE<TYPENAME>()); \
 }
 
+#define BROADCAST_RHS_3D_MID_KERNEL(OP_NAME, OP_TYPE, TYPENAME, RUST_NAME) \
+extern "C" __global__ void broadcast_##OP_NAME##_rhs_3d_mid_##RUST_NAME( \
+    const size_t numel, \
+    const size_t dim12, \
+    const size_t dim2, \
+    const TYPENAME *lhs, \
+    const TYPENAME *rhs, \
+    TYPENAME *dst \
+) { \
+    broadcast_binary_rhs_3d_mid<TYPENAME, OP_TYPE<TYPENAME>>(numel, dim12, dim2, lhs, rhs, dst, OP_TYPE<TYPENAME>()); \
+}
+
+#define BROADCAST_LHS_3D_MID_KERNEL(OP_NAME, OP_TYPE, TYPENAME, RUST_NAME) \
+extern "C" __global__ void broadcast_##OP_NAME##_lhs_3d_mid_##RUST_NAME( \
+    const size_t numel, \
+    const size_t dim12, \
+    const size_t dim2, \
+    const TYPENAME *lhs, \
+    const TYPENAME *rhs, \
+    TYPENAME *dst \
+) { \
+    broadcast_binary_lhs_3d_mid<TYPENAME, OP_TYPE<TYPENAME>>(numel, dim12, dim2, lhs, rhs, dst, OP_TYPE<TYPENAME>()); \
+}
+
 #define BROADCAST_ALL_VARIANTS(OP_NAME, OP_TYPE, TYPENAME, RUST_NAME) \
     BROADCAST_STRIDED_KERNEL(OP_NAME, OP_TYPE, TYPENAME, RUST_NAME) \
     BROADCAST_CONTIGUOUS_KERNEL(OP_NAME, OP_TYPE, TYPENAME, RUST_NAME) \
     BROADCAST_RHS_ROW_KERNEL(OP_NAME, OP_TYPE, TYPENAME, RUST_NAME) \
     BROADCAST_RHS_COL_KERNEL(OP_NAME, OP_TYPE, TYPENAME, RUST_NAME) \
     BROADCAST_LHS_ROW_KERNEL(OP_NAME, OP_TYPE, TYPENAME, RUST_NAME) \
-    BROADCAST_LHS_COL_KERNEL(OP_NAME, OP_TYPE, TYPENAME, RUST_NAME)
+    BROADCAST_LHS_COL_KERNEL(OP_NAME, OP_TYPE, TYPENAME, RUST_NAME) \
+    BROADCAST_RHS_3D_MID_KERNEL(OP_NAME, OP_TYPE, TYPENAME, RUST_NAME) \
+    BROADCAST_LHS_3D_MID_KERNEL(OP_NAME, OP_TYPE, TYPENAME, RUST_NAME)
 
 #define BROADCAST_ALL_OPS(TYPENAME, RUST_NAME) \
     BROADCAST_ALL_VARIANTS(add, AddOp, TYPENAME, RUST_NAME) \

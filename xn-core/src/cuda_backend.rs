@@ -1429,6 +1429,44 @@ impl crate::Backend for Device {
             launch_args.arg(&rhs.data);
             launch_args.arg(&mut dst.data);
             unsafe { launch_args.launch(cfg) }?;
+        } else if lhs_no_zero
+            && dst_shape.len() == 3
+            && rhs_strides[2] == 1
+            && rhs_strides[1] == 0
+            && rhs_strides[0] == dst_shape[2]
+        {
+            // rhs broadcasts along middle dim of 3D, strides [dim2, 0, 1]
+            let dim12 = dst_shape[1] * dst_shape[2];
+            let dim2 = dst_shape[2];
+            let kname = format!("broadcast_{}_rhs_3d_mid_{}", op_name, T::DTYPE.cuda_name());
+            let func = dst.device.get_func(&kname, PTXModule::Broadcast)?;
+            let mut launch_args = dst.device.stream.launch_builder(&func);
+            launch_args.arg(&numel);
+            launch_args.arg(&dim12);
+            launch_args.arg(&dim2);
+            launch_args.arg(&lhs.data);
+            launch_args.arg(&rhs.data);
+            launch_args.arg(&mut dst.data);
+            unsafe { launch_args.launch(cfg) }?;
+        } else if rhs_no_zero
+            && dst_shape.len() == 3
+            && lhs_strides[2] == 1
+            && lhs_strides[1] == 0
+            && lhs_strides[0] == dst_shape[2]
+        {
+            // lhs broadcasts along middle dim of 3D, strides [dim2, 0, 1]
+            let dim12 = dst_shape[1] * dst_shape[2];
+            let dim2 = dst_shape[2];
+            let kname = format!("broadcast_{}_lhs_3d_mid_{}", op_name, T::DTYPE.cuda_name());
+            let func = dst.device.get_func(&kname, PTXModule::Broadcast)?;
+            let mut launch_args = dst.device.stream.launch_builder(&func);
+            launch_args.arg(&numel);
+            launch_args.arg(&dim12);
+            launch_args.arg(&dim2);
+            launch_args.arg(&lhs.data);
+            launch_args.arg(&rhs.data);
+            launch_args.arg(&mut dst.data);
+            unsafe { launch_args.launch(cfg) }?;
         } else {
             // General strided case
             let num_dims = dst_shape.len();
