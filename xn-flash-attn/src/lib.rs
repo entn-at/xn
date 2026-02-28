@@ -27,39 +27,32 @@ pub fn flash_attn<T: WithDType + WithDTypeF>(
     softmax_scale: f32,
     is_causal: bool,
 ) -> Result<Tensor<T, Device>> {
-    let q_dims = q.dims();
-    let k_dims = k.dims();
-    let v_dims = v.dims();
-
-    if q_dims.len() != 4 || k_dims.len() != 4 || v_dims.len() != 4 {
+    if q.rank() != 4 || k.rank() != 4 || v.rank() != 4 {
         xn::bail!("flash_attn: q, k, v must be 4D [batch, heads, seqlen, head_dim]");
     }
 
-    let batch_size = q_dims[0];
-    let num_heads_q = q_dims[1];
-    let seqlen_q = q_dims[2];
-    let head_dim = q_dims[3];
+    let (batch_size, num_heads_q, seqlen_q, head_dim) = q.dims4()?;
+    let (batch_size_k, num_heads_k, seqlen_k, head_dim_k) = k.dims4()?;
+    let (batch_size_v, num_heads_v, seqlen_v, head_dim_v) = v.dims4()?;
 
-    let num_heads_k = k_dims[1];
-    let seqlen_k = k_dims[2];
-
-    if k_dims[0] != batch_size || v_dims[0] != batch_size {
+    if batch_size != batch_size_k || batch_size != batch_size_v {
         xn::bail!("flash_attn: batch size mismatch");
     }
-    if k_dims[3] != head_dim || v_dims[3] != head_dim {
+    if head_dim != head_dim_k || head_dim != head_dim_v {
         xn::bail!("flash_attn: head_dim mismatch");
     }
-    if v_dims[1] != num_heads_k || v_dims[2] != seqlen_k {
+    if num_heads_v != num_heads_k || seqlen_v != seqlen_k {
         xn::bail!("flash_attn: k and v shape mismatch");
     }
     if !num_heads_q.is_multiple_of(num_heads_k) {
         xn::bail!("flash_attn: num_heads_q must be a multiple of num_heads_k");
     }
 
-    let is_bf16 = T::DTYPE == xn::DType::BF16;
-    if T::DTYPE != xn::DType::BF16 && T::DTYPE != xn::DType::F16 {
-        xn::bail!("flash_attn: only bf16 and f16 are supported");
-    }
+    let is_bf16 = match T::DTYPE {
+        xn::DType::BF16 => true,
+        xn::DType::F16 => false,
+        _ => xn::bail!("flash_attn: only bf16 and f16 are supported"),
+    };
 
     let device = q.device();
 
