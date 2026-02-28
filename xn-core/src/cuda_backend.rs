@@ -1670,11 +1670,15 @@ fn conv1d_im2col<T: WithDTypeF>(
 
     let kname = format!("im2col1d_{}", T::DTYPE.cuda_name());
     let func = dst.device.get_func(&kname, PTXModule::Conv)?;
-    let cfg = LaunchConfig::for_num_elems(col_numel as u32);
+    const TILE: u32 = 32;
+    const BLOCK_ROWS: u32 = 8;
+    let cfg = LaunchConfig {
+        grid_dim: ((k as u32).div_ceil(TILE), (out_length as u32).div_ceil(TILE), batch as u32),
+        block_dim: (TILE, BLOCK_ROWS, 1),
+        shared_mem_bytes: 0,
+    };
 
     let mut launch_args = dst.device.stream.launch_builder(&func);
-    launch_args.arg(&col_numel);
-    launch_args.arg(&batch);
     launch_args.arg(&in_channels);
     launch_args.arg(&length);
     launch_args.arg(&out_length);
@@ -1706,8 +1710,6 @@ fn conv1d_im2col<T: WithDTypeF>(
     // Step 3: Transpose from [B, L_out, out_channels] to [B, out_channels, L_out]
     let kname = format!("transpose_blc_bcl_{}", T::DTYPE.cuda_name());
     let func = dst.device.get_func(&kname, PTXModule::Conv)?;
-    const TILE: u32 = 32;
-    const BLOCK_ROWS: u32 = 8;
     let cfg = LaunchConfig {
         grid_dim: (
             (out_channels as u32).div_ceil(TILE),
@@ -1938,7 +1940,6 @@ fn conv_transpose1d_col2im<T: WithDTypeF>(
     let src_numel = batch * in_channels * length;
     let n = out_channels * kernel_size;
     let col_numel = batch * length * n;
-    let dst_numel = batch * out_channels * out_length;
 
     // Step 1: Transpose input from [B, C_in, L_in] to [B, L_in, C_in]
     let mut src_transposed: CudaSlice<T> = unsafe { dst.device.stream.alloc(src_numel) }?;
@@ -1986,11 +1987,17 @@ fn conv_transpose1d_col2im<T: WithDTypeF>(
     // output: [B, C_out, L_out]
     let kname = format!("col2im1d_{}", T::DTYPE.cuda_name());
     let func = dst.device.get_func(&kname, PTXModule::Conv)?;
-    let cfg = LaunchConfig::for_num_elems(dst_numel as u32);
+    let cfg = LaunchConfig {
+        grid_dim: (
+            (out_length as u32).div_ceil(TILE),
+            (out_channels as u32).div_ceil(TILE),
+            batch as u32,
+        ),
+        block_dim: (TILE, BLOCK_ROWS, 1),
+        shared_mem_bytes: 0,
+    };
 
     let mut launch_args = dst.device.stream.launch_builder(&func);
-    launch_args.arg(&dst_numel);
-    launch_args.arg(&batch);
     launch_args.arg(&length);
     launch_args.arg(&out_channels);
     launch_args.arg(&out_length);

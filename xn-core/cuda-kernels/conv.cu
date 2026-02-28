@@ -22,14 +22,14 @@ template<> __device__ __forceinline__ __nv_bfloat16 from_float(float v) { return
 #endif
 
 // ============================================================================
-// Im2Col1D kernel
+// Tiled Im2Col1D kernel
 // Transforms input from [B, C_in, L_in] to [B, L_out, C_in * K] for conv1d
+// Grid: (ceil(C_in*K/TILE), ceil(L_out/TILE), B), Block: (TILE, BLOCK_ROWS)
+// threadIdx.x along C_in*K (contiguous in output) → coalesced writes
 // ============================================================================
 
-template <typename T>
+template <typename T, int TILE_DIM = 32, int BLOCK_ROWS = 8>
 __device__ void im2col1d_kernel(
-    const size_t numel,       // Total output elements (B * L_out * C_in * K)
-    const size_t batch,
     const size_t c_in,
     const size_t l_in,
     const size_t l_out,
@@ -40,37 +40,42 @@ __device__ void im2col1d_kernel(
     const T *src,
     T *dst
 ) {
-    const size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (idx >= numel) return;
+    const size_t b = blockIdx.z;
+    const size_t ck = c_in * k_size;
 
-    // dst layout: [B, L_out, C_in, K] flattened
-    const size_t k_idx = idx % k_size;
-    const size_t c_idx = (idx / k_size) % c_in;
-    const size_t l_idx = (idx / (k_size * c_in)) % l_out;
-    const size_t b_idx = idx / (k_size * c_in * l_out);
+    int ck_idx = blockIdx.x * TILE_DIM + threadIdx.x;
+    int l_base = blockIdx.y * TILE_DIM + threadIdx.y;
 
-    // Compute source position
-    size_t src_l = l_idx * stride + k_idx * dilation;
+    for (int j = 0; j < TILE_DIM; j += BLOCK_ROWS) {
+        int l_idx = l_base + j;
+        if (ck_idx < (int)ck && l_idx < (int)l_out) {
+            int k_idx = ck_idx % (int)k_size;
+            int c_idx = ck_idx / (int)k_size;
 
-    if (src_l < padding || src_l >= l_in + padding) {
-        dst[idx] = static_cast<T>(0);
-    } else {
-        src_l -= padding;
-        const size_t src_idx = b_idx * c_in * l_in + c_idx * l_in + src_l;
-        dst[idx] = src[src_idx];
+            size_t src_l = (size_t)l_idx * stride + (size_t)k_idx * dilation;
+            size_t dst_idx = b * l_out * ck + (size_t)l_idx * ck + (size_t)ck_idx;
+
+            if (src_l < padding || src_l >= l_in + padding) {
+                dst[dst_idx] = static_cast<T>(0);
+            } else {
+                src_l -= padding;
+                size_t src_idx = b * c_in * l_in + (size_t)c_idx * l_in + src_l;
+                dst[dst_idx] = src[src_idx];
+            }
+        }
     }
 }
 
 // ============================================================================
-// Col2Im1D kernel
+// Tiled Col2Im1D kernel
 // Transforms col data from [B, L_in, C_out * K] to [B, C_out, L_out]
+// Grid: (ceil(L_out/TILE), ceil(C_out/TILE), B), Block: (TILE, BLOCK_ROWS)
+// threadIdx.x along L_out (contiguous in output [B, C_out, L_out]) → coalesced writes
 // ============================================================================
 
-template <typename T>
+template <typename T, int TILE_DIM = 32, int BLOCK_ROWS = 8>
 __device__ void col2im1d_kernel(
-    const size_t dst_numel,   // Total output elements (B * C_out * L_out)
-    const size_t batch,
-    const size_t l_in,        // Input length (before transpose conv)
+    const size_t l_in,
     const size_t c_out,
     const size_t l_out,
     const size_t k_size,
@@ -78,34 +83,38 @@ __device__ void col2im1d_kernel(
     const T *src,
     T *dst
 ) {
-    const size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (idx >= dst_numel) return;
+    const size_t b = blockIdx.z;
 
-    // dst layout: [B, C_out, L_out]
-    const size_t l_out_idx = idx % l_out;
-    const size_t c_idx = (idx / l_out) % c_out;
-    const size_t b_idx = idx / (l_out * c_out);
+    // threadIdx.x along L_out → coalesced writes
+    int l_out_idx = blockIdx.x * TILE_DIM + threadIdx.x;
+    int c_base = blockIdx.y * TILE_DIM + threadIdx.y;
 
     // src layout: [B, L_in, C_out, K]
     const size_t src_s0 = l_in * c_out * k_size;
     const size_t src_s1 = c_out * k_size;
     const size_t src_s2 = k_size;
 
-    T sum = static_cast<T>(0);
+    for (int j = 0; j < TILE_DIM; j += BLOCK_ROWS) {
+        int c_idx = c_base + j;
+        if (l_out_idx < (int)l_out && c_idx < (int)c_out) {
+            T sum = static_cast<T>(0);
 
-    // Find all (l_in_idx, k_idx) pairs that contribute to this output position
-    // l_out_idx = l_in_idx * stride + k_idx
-    int l_in_idx = l_out_idx / stride;
-    int k_start = l_out_idx - l_in_idx * stride;
+            // Find all (l_in_idx, k_idx) pairs that contribute to this output position
+            // l_out_idx = l_in_idx * stride + k_idx
+            int l_in_idx = l_out_idx / (int)stride;
+            int k_start = l_out_idx - l_in_idx * (int)stride;
 
-    for (; k_start < (int)k_size && l_in_idx >= 0; k_start += stride, --l_in_idx) {
-        if (l_in_idx < (int)l_in) {
-            const size_t src_idx = b_idx * src_s0 + l_in_idx * src_s1 + c_idx * src_s2 + k_start;
-            sum += src[src_idx];
+            for (; k_start < (int)k_size && l_in_idx >= 0; k_start += (int)stride, --l_in_idx) {
+                if (l_in_idx < (int)l_in) {
+                    size_t src_idx = b * src_s0 + (size_t)l_in_idx * src_s1 + (size_t)c_idx * src_s2 + (size_t)k_start;
+                    sum += src[src_idx];
+                }
+            }
+
+            size_t dst_idx = b * c_out * l_out + (size_t)c_idx * l_out + (size_t)l_out_idx;
+            dst[dst_idx] = sum;
         }
     }
-
-    dst[idx] = sum;
 }
 
 // ============================================================================
@@ -311,8 +320,6 @@ __device__ void transpose_bcl_to_blc(
 
 #define IM2COL1D_OP(TYPENAME, RUST_NAME) \
 extern "C" __global__ void im2col1d_##RUST_NAME( \
-    const size_t numel, \
-    const size_t batch, \
     const size_t c_in, \
     const size_t l_in, \
     const size_t l_out, \
@@ -323,13 +330,11 @@ extern "C" __global__ void im2col1d_##RUST_NAME( \
     const TYPENAME *src, \
     TYPENAME *dst \
 ) { \
-    im2col1d_kernel<TYPENAME>(numel, batch, c_in, l_in, l_out, k_size, stride, padding, dilation, src, dst); \
+    im2col1d_kernel<TYPENAME>(c_in, l_in, l_out, k_size, stride, padding, dilation, src, dst); \
 }
 
 #define COL2IM1D_OP(TYPENAME, RUST_NAME) \
 extern "C" __global__ void col2im1d_##RUST_NAME( \
-    const size_t dst_numel, \
-    const size_t batch, \
     const size_t l_in, \
     const size_t c_out, \
     const size_t l_out, \
@@ -338,7 +343,7 @@ extern "C" __global__ void col2im1d_##RUST_NAME( \
     const TYPENAME *src, \
     TYPENAME *dst \
 ) { \
-    col2im1d_kernel<TYPENAME>(dst_numel, batch, l_in, c_out, l_out, k_size, stride, src, dst); \
+    col2im1d_kernel<TYPENAME>(l_in, c_out, l_out, k_size, stride, src, dst); \
 }
 
 #define CONV1D_DIRECT_OP(TYPENAME, RUST_NAME) \
