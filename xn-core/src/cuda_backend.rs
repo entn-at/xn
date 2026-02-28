@@ -957,7 +957,47 @@ impl crate::Backend for Device {
             return Ok(());
         }
 
-        let num_dims = dims.len();
+        let n = dims.len();
+
+        // Detect 2D strided pattern: innermost dim is contiguous (stride 1),
+        // and all batch dims (before the last two) are contiguous relative to each other.
+        // This covers e.g. dims [A, B] with strides [2*B, 1] — rows are contiguous but spaced.
+        if n >= 2
+            && src_strides[n - 1] == 1
+            && (0..n.saturating_sub(2)).all(|i| src_strides[i] == dims[i + 1] * src_strides[i + 1])
+        {
+            let rows = dims[n - 2];
+            let cols = dims[n - 1];
+            let src_stride = src_strides[n - 2];
+            let batch: usize = dims[..n - 2].iter().product::<usize>().max(1);
+
+            const TILE: u32 = 32;
+            const BLOCK_ROWS: u32 = 8;
+            let cfg = LaunchConfig {
+                grid_dim: (
+                    (cols as u32).div_ceil(TILE),
+                    (rows as u32).div_ceil(TILE),
+                    batch as u32,
+                ),
+                block_dim: (TILE, BLOCK_ROWS, 1),
+                shared_mem_bytes: 0,
+            };
+
+            let kname = kernel_name::<T>("copy_strided_2d");
+            let func = dst.device.get_func(&kname, PTXModule::Layout)?;
+            let src_offset_u32 = src_offset as u32;
+            let mut launch_args = dst.device.stream.launch_builder(&func);
+            launch_args.arg(&rows);
+            launch_args.arg(&cols);
+            launch_args.arg(&src_stride);
+            launch_args.arg(&src_offset_u32);
+            launch_args.arg(&src.data);
+            launch_args.arg(&mut dst.data);
+            unsafe { launch_args.launch(cfg) }?;
+            return Ok(());
+        }
+
+        let num_dims = n;
         let info: Vec<usize> = dims.iter().chain(src_strides.iter()).copied().collect();
         let info_dev = dst.device.stream.clone_htod(&info)?;
 

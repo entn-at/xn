@@ -60,6 +60,54 @@ COPY_STRIDED_OP(int64_t, i64)
 COPY_STRIDED_OP(float, f32)
 COPY_STRIDED_OP(double, f64)
 
+// Tiled 2D copy for when the innermost dim is contiguous (stride 1) but the
+// outer dim has a stride larger than cols (gaps between rows).
+// Source: src[offset + b*rows*src_stride + r*src_stride + c]
+// Dest:   dst[b*rows*cols + r*cols + c]
+// Grid: (ceil(cols/TILE_DIM), ceil(rows/TILE_DIM), batch), Block: (TILE_DIM, BLOCK_ROWS, 1)
+template <typename T, int TILE_DIM = 32, int BLOCK_ROWS = 8>
+__device__ void copy_strided_2d(
+    const size_t rows,
+    const size_t cols,
+    const size_t src_stride,
+    const unsigned int src_offset,
+    const T *src,
+    T *dst
+) {
+    const size_t b = blockIdx.z;
+    const size_t c = blockIdx.x * TILE_DIM + threadIdx.x;
+    const size_t r_base = blockIdx.y * TILE_DIM + threadIdx.y;
+
+    if (c < cols) {
+        for (int j = 0; j < TILE_DIM; j += BLOCK_ROWS) {
+            size_t r = r_base + j;
+            if (r < rows)
+                dst[b * rows * cols + r * cols + c] =
+                    src[src_offset + b * rows * src_stride + r * src_stride + c];
+        }
+    }
+}
+
+#define COPY_STRIDED_2D_OP(TYPENAME, RUST_NAME) \
+extern "C" __global__ void copy_strided_2d_##RUST_NAME( \
+    const size_t rows, \
+    const size_t cols, \
+    const size_t src_stride, \
+    const unsigned int src_offset, \
+    const TYPENAME *src, \
+    TYPENAME *dst \
+) { copy_strided_2d<TYPENAME>(rows, cols, src_stride, src_offset, src, dst); }
+
+#if __CUDA_ARCH__ >= 800
+COPY_STRIDED_2D_OP(__nv_bfloat16, bf16)
+#endif
+#if __CUDA_ARCH__ >= 530
+COPY_STRIDED_2D_OP(__half, f16)
+#endif
+COPY_STRIDED_2D_OP(uint8_t, u8)
+COPY_STRIDED_2D_OP(int64_t, i64)
+COPY_STRIDED_2D_OP(float, f32)
+
 template <typename T>
 __device__ void transpose(const size_t numel, const uint32_t d1,
                           const uint32_t d2, const uint32_t d_i,
