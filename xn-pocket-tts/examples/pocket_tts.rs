@@ -362,7 +362,7 @@ fn run_for_device<Dev: Backend>(args: Args, dev: Dev) -> Result<()> {
     // Write WAV
     let output_file = std::fs::File::create(&args.output)?;
     let mut writer = std::io::BufWriter::new(output_file);
-    kaudio::wav::write_pcm_as_wav(&mut writer, &pcm, cfg.mimi.sample_rate as u32, 1)?;
+    pocket_tts::wav::write_pcm_as_wav(&mut writer, &pcm, cfg.mimi.sample_rate as u32, 1)?;
     tracing::info!("saving output to {}", args.output.display());
     Ok(())
 }

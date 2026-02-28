@@ -11,6 +11,7 @@ pub mod rope;
 pub mod seanet;
 pub mod transformer;
 pub mod tts_model;
+pub mod wav;
 
 pub trait Tokenizer {
     fn encode(&self, text: &str) -> Vec<u32>;

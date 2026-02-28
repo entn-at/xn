@@ -10,7 +10,6 @@ rand_distr = "0.5"
 tracing = "0.1.44"
 tracing-subscriber = "0.3"
 
-kaudio = { version = "0.2.1", optional = true }
 sentencepiece = { version = "0.13.1", optional = true }
 
 [dev-dependencies]
@@ -23,8 +22,8 @@ tracing-chrome = "0.7"
 [features]
 default = []
 cuda = ["xn/cuda"]
-audio = ["dep:kaudio", "dep:sentencepiece"]
+sp = ["dep:sentencepiece"]
 
 [[example]]
 name = "pocket_tts"
-required-features = ["audio"]
+required-features = ["sp"]

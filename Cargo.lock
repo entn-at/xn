@@ -1715,7 +1715,6 @@ dependencies = [
  "anyhow",
  "clap",
  "hf-hub",
- "kaudio",
  "rand",
  "rand_distr",
  "sentencepiece",
