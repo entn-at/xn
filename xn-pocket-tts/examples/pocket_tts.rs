@@ -24,6 +24,9 @@ struct Args {
     /// Text to synthesize
     text: String,
 
+    #[arg(long)]
+    config: Option<String>,
+
     /// Output WAV file path
     #[arg(short, long, default_value = "output.wav")]
     output: std::path::PathBuf,
@@ -208,7 +211,22 @@ where
 }
 
 fn run_for_device<Dev: Backend>(args: Args, dev: Dev) -> Result<()> {
-    let (model_path, tokenizer_path, voice_path) = download_files(&args.voice)?;
+    let (model_path, tokenizer_path, voice_path, cfg) = match args.config.as_ref() {
+        Some(config) => {
+            let config = std::fs::canonicalize(config)?;
+            let parent = config.parent().context("config path has no parent")?;
+            let model_path = parent.join("model.safetensors");
+            let tokenizer_path = parent.join("tokenizer.model");
+            tracing::info!(?config, "using local config");
+            let config: pocket_tts::tts_model::TTSConfig =
+                serde_json::from_str(&std::fs::read_to_string(config)?)?;
+            (model_path, tokenizer_path, None, config)
+        }
+        None => {
+            let (model_path, tokenizer_path, voice_path) = download_files(&args.voice)?;
+            (model_path, tokenizer_path, Some(voice_path), TTSConfig::v202601(args.temperature))
+        }
+    };
 
     let vb = VB::load_with_key_map(&[&model_path], dev.clone(), remap_key)?;
     let root = vb.root();
@@ -217,8 +235,6 @@ fn run_for_device<Dev: Backend>(args: Args, dev: Dev) -> Result<()> {
     let sp = sentencepiece::SentencePieceProcessor::open(tokenizer_path)?;
     let tokenizer = SpTokenizer(sp);
     let chunks = split_into_best_sentences(&tokenizer, &args.text, None);
-
-    let cfg = TTSConfig::v202601(args.temperature);
 
     let mut rng = match args.rng_values {
         Some(path) => Rng::from_file(&path)?,
@@ -253,27 +269,28 @@ fn run_for_device<Dev: Backend>(args: Args, dev: Dev) -> Result<()> {
     let mimi_state = model.init_mimi_state(1, 250)?;
 
     // Load voice embedding
-    let voice_vb = VB::load(&[&voice_path], dev.clone())?;
-    let voice_names = voice_vb.tensor_names();
-    let voice_key = voice_names.first().context("no tensors found in voice embedding file")?;
-    let voice_td = voice_vb.get_tensor(voice_key).context("voice tensor not found")?;
-    let voice_shape = &voice_td.shape;
-    let voice_dims = voice_shape.dims();
+    if let Some(voice_path) = voice_path {
+        let voice_vb = VB::load(&[&voice_path], dev.clone())?;
+        let voice_names = voice_vb.tensor_names();
+        let voice_key = voice_names.first().context("no tensors found in voice embedding file")?;
+        let voice_td = voice_vb.get_tensor(voice_key).context("voice tensor not found")?;
+        let voice_shape = &voice_td.shape;
+        let voice_dims = voice_shape.dims();
 
-    // Load as raw tensor and reshape to [1, T, dim]
-    let voice_emb: Tensor<f32, Dev> = voice_vb.tensor(voice_key, voice_shape.clone())?;
-    let voice_emb = if voice_dims.len() == 2 {
-        voice_emb.reshape((1, voice_dims[0], voice_dims[1]))?
-    } else {
-        voice_emb
-    };
-
-    // Prompt with audio conditioning
-    tracing::info!("prompting with voice conditioning ({} frames)...", voice_emb.dim(1usize)?);
-    let start = std::time::Instant::now();
-    model.prompt_audio(&mut tts_state, &voice_emb)?;
-    let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
-    tracing::info!("done prompting with voice conditioning in {elapsed_ms:.2}ms");
+        // Load as raw tensor and reshape to [1, T, dim]
+        let voice_emb: Tensor<f32, Dev> = voice_vb.tensor(voice_key, voice_shape.clone())?;
+        let voice_emb = if voice_dims.len() == 2 {
+            voice_emb.reshape((1, voice_dims[0], voice_dims[1]))?
+        } else {
+            voice_emb
+        };
+        // Prompt with audio conditioning
+        tracing::info!("prompting with voice conditioning ({} frames)...", voice_emb.dim(1usize)?);
+        let start = std::time::Instant::now();
+        model.prompt_audio(&mut tts_state, &voice_emb)?;
+        let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+        tracing::info!("done prompting with voice conditioning in {elapsed_ms:.2}ms");
+    }
 
     let start = std::time::Instant::now();
     tracing::info!("starting generation...");
