@@ -167,7 +167,11 @@ impl<T: WithDType, B: Backend> Tensor<T, B> {
     /// Returns a `TensorView` (zero-copy). Call `.contiguous()?` on the result
     /// if you need a contiguous `Tensor`.
     #[tracing::instrument(skip_all)]
-    pub fn narrow(&self, dim: usize, range: impl RangeBounds<usize>) -> Result<TensorView<T, B>> {
+    pub fn narrow(
+        &self,
+        dim: impl Dim,
+        range: impl RangeBounds<usize>,
+    ) -> Result<TensorView<T, B>> {
         TensorView::from(self).narrow(dim, range)
     }
 

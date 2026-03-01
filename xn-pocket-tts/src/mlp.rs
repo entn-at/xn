@@ -1,5 +1,5 @@
 use xn::nn::{LayerNorm, Linear, var_builder::Path};
-use xn::{Backend, Result, Tensor, WithDTypeF};
+use xn::{Backend, D, Result, Tensor, WithDTypeF};
 
 fn modulate<T: WithDTypeF, B: Backend>(
     x: &Tensor<T, B>,
@@ -42,17 +42,13 @@ impl<T: WithDTypeF, B: Backend> TimestepEmbedder<T, B> {
         let args = t.broadcast_mul(&self.freqs)?;
         let cos = args.cos()?;
         let sin = args.sin()?;
-        let embedding = Tensor::cat(&[&cos, &sin], embedding_last_dim(&cos)?)?;
+        let embedding = Tensor::cat(&[&cos, &sin], D::Minus1)?;
         let mut x = self.linear1.forward(&embedding)?;
         x = x.silu()?;
         x = self.linear2.forward(&x)?;
         x = self.rms_norm.forward(&x)?;
         Ok(x)
     }
-}
-
-fn embedding_last_dim<T: WithDTypeF, B: Backend>(t: &Tensor<T, B>) -> Result<usize> {
-    Ok(t.rank() - 1)
 }
 
 // ---- ResBlock ----
@@ -116,9 +112,9 @@ impl<T: WithDTypeF, B: Backend> FinalLayer<T, B> {
 
     pub fn forward(&self, x: &Tensor<T, B>, c: &Tensor<T, B>) -> Result<Tensor<T, B>> {
         let ada = self.ada_ln_silu_linear.forward(&c.silu()?)?;
-        let model_channels = x.dim(xn::D::Minus1)?;
-        let shift = ada.narrow(ada.rank() - 1, 0..model_channels)?.contiguous()?;
-        let scale = ada.narrow(ada.rank() - 1, model_channels..2 * model_channels)?.contiguous()?;
+        let model_channels = x.dim(D::Minus1)?;
+        let shift = ada.narrow(D::Minus1, 0..model_channels)?.contiguous()?;
+        let scale = ada.narrow(D::Minus1, model_channels..2 * model_channels)?.contiguous()?;
 
         let x = self.norm_final.forward(x)?;
         let x = modulate(&x, &shift, &scale)?;
