@@ -17,6 +17,7 @@ pub struct TimestepEmbedder<T: WithDTypeF, B: Backend> {
     linear2: Linear<T, B>,
     rms_norm: LayerNorm<T, B>,
     freqs: Tensor<T, B>,
+    scale: T,
 }
 
 impl<T: WithDTypeF, B: Backend> TimestepEmbedder<T, B> {
@@ -25,15 +26,14 @@ impl<T: WithDTypeF, B: Backend> TimestepEmbedder<T, B> {
         let linear1 = Linear::load_b(mlp.pp("0"), frequency_embedding_size, hidden_size)?;
         let linear2 = Linear::load_b(mlp.pp("2"), hidden_size, hidden_size)?;
 
-        // This is slightly different from the python implementation which uses an unbiased
-        // variance estimate whereas the op in xn uses a biased one.
-        // This should not have much impact but maybe we want to have the option to make the
-        // estimator unbiased in layer-norm.
         let ln_w = mlp.tensor("3.alpha", (hidden_size,))?;
         let ln_b = ln_w.zeros_like()?;
+        // The python implementation of rms-norm uses an unbiased variance estimator while the one
+        // in xn uses a biased one. We adjust it by this factor.
         let rms_norm = LayerNorm::new(ln_w, ln_b, 1e-5).remove_mean(false);
+        let scale = T::from_f32(((hidden_size - 1) as f32 / hidden_size as f32).sqrt());
         let freqs = vb.tensor("freqs", (frequency_embedding_size / 2,))?;
-        Ok(Self { linear1, linear2, rms_norm, freqs })
+        Ok(Self { linear1, linear2, rms_norm, freqs, scale })
     }
 
     #[tracing::instrument(name = "ts-embedder", skip_all)]
@@ -46,7 +46,7 @@ impl<T: WithDTypeF, B: Backend> TimestepEmbedder<T, B> {
         let mut x = self.linear1.forward(&embedding)?;
         x = x.silu()?;
         x = self.linear2.forward(&x)?;
-        x = self.rms_norm.forward(&x)?;
+        x = self.rms_norm.forward(&x)?.scale(self.scale)?;
         Ok(x)
     }
 }
