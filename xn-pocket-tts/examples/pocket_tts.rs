@@ -39,6 +39,10 @@ struct Args {
     #[arg(short, long, default_value_t = 0.7)]
     temperature: f32,
 
+    /// Sampling seed
+    #[arg(short, long, default_value_t = 4242424242424242)]
+    seed: u64,
+
     /// Use the cpu device even if cuda is available
     #[arg(long, default_value_t = false)]
     cpu: bool,
@@ -161,11 +165,11 @@ enum Rng {
 }
 
 impl Rng {
-    pub fn std_rng(temperature: f32) -> Result<Self> {
+    pub fn std_rng(temperature: f32, seed: u64) -> Result<Self> {
         use rand::SeedableRng;
         let std = temperature.sqrt();
         let distr = rand_distr::Normal::new(0f32, std)?;
-        let rng = rand::rngs::StdRng::seed_from_u64(42);
+        let rng = rand::rngs::StdRng::seed_from_u64(seed);
         Ok(Self::StdRng { inner: Box::new(rng), distr })
     }
 
@@ -238,7 +242,7 @@ fn run_for_device<Dev: Backend>(args: Args, dev: Dev) -> Result<()> {
 
     let mut rng = match args.rng_values {
         Some(path) => Rng::from_file(&path)?,
-        None => Rng::std_rng(args.temperature)?,
+        None => Rng::std_rng(args.temperature, args.seed)?,
     };
 
     tracing::info!(
