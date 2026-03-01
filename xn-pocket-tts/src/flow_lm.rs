@@ -36,6 +36,7 @@ fn lsd_decode<T: WithDTypeF, B: Backend>(
     Ok(current)
 }
 
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct FlowLMConfig {
     pub d_model: usize,
     pub num_heads: usize,

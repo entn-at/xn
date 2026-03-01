@@ -3,6 +3,7 @@ use crate::mimi::{MimiConfig, MimiModel, MimiState};
 use xn::nn::{Linear, var_builder::Path};
 use xn::{Backend, Result, Tensor, WithDTypeF};
 
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct TTSConfig {
     pub flow_lm: FlowLMConfig,
     pub mimi: MimiConfig,

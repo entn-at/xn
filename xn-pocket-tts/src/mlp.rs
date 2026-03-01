@@ -26,15 +26,13 @@ impl<T: WithDTypeF, B: Backend> TimestepEmbedder<T, B> {
         let linear2 = Linear::load_b(mlp.pp("2"), hidden_size, hidden_size)?;
 
         // This is slightly different from the python implementation which uses an unbiased
-        // variance estimate whereas the op in mimi-rs uses a biased one.
+        // variance estimate whereas the op in xn uses a biased one.
         // This should not have much impact but maybe we want to have the option to make the
         // estimator unbiased in layer-norm.
         let ln_w = mlp.tensor("3.alpha", (hidden_size,))?;
         let ln_b = ln_w.zeros_like()?;
         let rms_norm = LayerNorm::new(ln_w, ln_b, 1e-5).remove_mean(false);
-
         let freqs = vb.tensor("freqs", (frequency_embedding_size / 2,))?;
-
         Ok(Self { linear1, linear2, rms_norm, freqs })
     }
 
@@ -45,8 +43,6 @@ impl<T: WithDTypeF, B: Backend> TimestepEmbedder<T, B> {
         let cos = args.cos()?;
         let sin = args.sin()?;
         let embedding = Tensor::cat(&[&cos, &sin], embedding_last_dim(&cos)?)?;
-
-        // MLP: linear -> silu -> linear -> rmsnorm
         let mut x = self.linear1.forward(&embedding)?;
         x = x.silu()?;
         x = self.linear2.forward(&x)?;
@@ -162,14 +158,11 @@ impl<T: WithDTypeF, B: Backend> SimpleMLPAdaLN<T, B> {
 
         let cond_embed = Linear::load_b(vb.pp("cond_embed"), cond_channels, model_channels)?;
         let input_proj = Linear::load_b(vb.pp("input_proj"), in_channels, model_channels)?;
-
         let mut res_blocks = Vec::new();
         for i in 0..num_res_blocks {
             res_blocks.push(ResBlock::load(&vb.pp("res_blocks").pp(i), model_channels)?);
         }
-
         let final_layer = FinalLayer::load(&vb.pp("final_layer"), model_channels, out_channels)?;
-
         Ok(Self { time_embeds, cond_embed, input_proj, res_blocks, final_layer, num_time_conds })
     }
 

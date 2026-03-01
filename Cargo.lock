@@ -1718,6 +1718,7 @@ dependencies = [
  "rand",
  "rand_distr",
  "sentencepiece",
+ "serde",
  "serde_json",
  "tracing",
  "tracing-chrome",

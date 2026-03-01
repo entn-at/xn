@@ -7,6 +7,7 @@ use crate::seanet::{SEANetDecoder, SEANetDecoderState, SEANetEncoder, SEANetEnco
 use xn::nn::var_builder::Path;
 use xn::{Backend, Result, Tensor, WithDTypeF};
 
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct MimiConfig {
     pub channels: usize,
     pub sample_rate: usize,
