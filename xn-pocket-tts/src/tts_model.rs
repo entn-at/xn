@@ -128,6 +128,17 @@ impl<T: WithDTypeF, B: Backend> TTSModel<T, B> {
         Ok(())
     }
 
+    pub fn prompt_text_null(&self, state: &mut TTSState<T, B>) -> Result<()> {
+        let empty_text = match self.flow_lm.conditioner.learnt_padding() {
+            None => xn::bail!("no learnt padding, cannot use null text prompt"),
+            Some(pad) => pad,
+        };
+        let dev = empty_text.device();
+        let empty_latents = Tensor::zeros((1, 0, self.flow_lm.ldim), dev)?;
+        self.run_backbone_and_increment(state, empty_text, &empty_latents)?;
+        Ok(())
+    }
+
     /// Run flow LM step with audio conditioning. Increments state.
     pub fn prompt_audio(
         &self,
@@ -157,6 +168,31 @@ impl<T: WithDTypeF, B: Backend> TTSModel<T, B> {
             backbone_input,
             &empty_text,
             &mut state.flow_lm_state,
+            self.lsd_decode_steps,
+            rng,
+            self.eos_threshold,
+        )?;
+
+        Ok((latent, is_eos))
+    }
+
+    pub fn generate_step_cfg(
+        &self,
+        state: &mut TTSState<T, B>,
+        null_state: &mut TTSState<T, B>,
+        cfg_coef: f32,
+        backbone_input: &Tensor<T, B>,
+        rng: &mut impl crate::flow_lm::Rng,
+    ) -> Result<(Tensor<T, B>, bool)> {
+        let dev = backbone_input.device();
+        let empty_text = Tensor::zeros((1, 0, self.flow_lm.conditioner.dim), dev)?;
+
+        let (latent, is_eos) = self.flow_lm.sample_next_latent_cfg(
+            backbone_input,
+            &empty_text,
+            &mut state.flow_lm_state,
+            &mut null_state.flow_lm_state,
+            cfg_coef,
             self.lsd_decode_steps,
             rng,
             self.eos_threshold,
