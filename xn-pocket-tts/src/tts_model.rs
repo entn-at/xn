@@ -130,8 +130,8 @@ impl<T: WithDTypeF, B: Backend> TTSModel<T, B> {
 
     pub fn prompt_text_null(&self, state: &mut TTSState<T, B>) -> Result<()> {
         let empty_text = match self.flow_lm.conditioner.learnt_padding() {
-            None => xn::bail!("no learnt padding, cannot use null text prompt"),
-            Some(pad) => pad,
+            None => xn::bail!("Model does not support null text prompt"),
+            Some(p) => p,
         };
         let dev = empty_text.device();
         let empty_latents = Tensor::zeros((1, 0, self.flow_lm.ldim), dev)?;
