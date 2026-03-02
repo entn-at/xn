@@ -5,8 +5,8 @@ use xn::{Backend, Result, Tensor, WithDTypeF};
 pub struct LUTConditioner<T: WithDTypeF, B: Backend> {
     pub tokenizer: Box<dyn Tokenizer + Send + Sync>,
     embed: Tensor<T, B>,
-    pub learnt_padding: Option<Tensor<T, B>>,
-    output_proj: Linear<T, B>,
+    learnt_padding: Option<Tensor<T, B>>,
+    output_proj: Option<Linear<T, B>>,
     pub dim: usize,
     pub output_dim: usize,
 }
@@ -25,7 +25,11 @@ impl<T: WithDTypeF, B: Backend> LUTConditioner<T, B> {
         } else {
             None
         };
-        let output_proj = Linear::load(vb.pp("output_proj"), dim, output_dim)?;
+        let output_proj = if vb.contains("output_proj.weight") {
+            Some(Linear::load(vb.pp("output_proj"), dim, output_dim)?)
+        } else {
+            None
+        };
         Ok(Self { tokenizer, embed, dim, output_dim, learnt_padding, output_proj })
     }
 
@@ -47,7 +51,10 @@ impl<T: WithDTypeF, B: Backend> LUTConditioner<T, B> {
         )?;
         let emb = self.embed.index_select(&ids_t, 0)?;
         let emb = emb.reshape((1, token_ids.len(), self.dim))?;
-        self.output_proj.forward(&emb)
+        match self.output_proj.as_ref() {
+            Some(proj) => proj.forward(&emb),
+            None => Ok(emb),
+        }
     }
 
     pub fn learnt_padding(&self) -> Option<&Tensor<T, B>> {
