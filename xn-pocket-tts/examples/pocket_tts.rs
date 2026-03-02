@@ -87,7 +87,6 @@ fn remap_key(name: &str) -> Option<String> {
     if name.contains("flow.w_s_t")
         || name.contains("quantizer.vq")
         || name.contains("quantizer.logvar_proj")
-        || name.contains("learnt_padding")
     {
         return None;
     }

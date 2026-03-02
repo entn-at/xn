@@ -178,6 +178,7 @@ impl<T: WithDTypeF, B: Backend> FlowLM<T, B> {
         let t_len = transformer_out.dim(1usize)?;
         let transformer_out = transformer_out.narrow(1, t_len - 1..t_len)?.contiguous()?;
         let transformer_out = transformer_out.reshape((b, self.dim))?;
+        println!("TO>\n{}", transformer_out);
 
         let eos_logit = self.out_eos.forward(&transformer_out)?;
         let eos_val = eos_logit.to_vec()?;
