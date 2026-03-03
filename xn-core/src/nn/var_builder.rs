@@ -1,5 +1,5 @@
 use crate::{Backend, Result, Shape, Tensor, WithDTypeF};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 pub struct MmapedFiles {
     mmaps: Vec<(std::path::PathBuf, memmap2::Mmap)>,
@@ -177,6 +177,7 @@ impl VBData {
 /// A self-contained VarBuilder that owns its data (memory-mapped files or byte buffers).
 pub struct VB<B: Backend> {
     data: VBData,
+    used: Mutex<std::collections::HashSet<String>>,
     device: B,
 }
 
@@ -187,7 +188,8 @@ impl<B: Backend> VB<B> {
             let tensor_data = load_tensor_data(mmaps)?;
             Ok(VarBuilderYoke { tensor_data })
         })?;
-        Ok(Self { data: VBData::Mmap(yoke), device })
+        let used = Mutex::new(Default::default());
+        Ok(Self { data: VBData::Mmap(yoke), used, device })
     }
 
     pub fn load_with_key_map<P: AsRef<std::path::Path>>(
@@ -200,7 +202,8 @@ impl<B: Backend> VB<B> {
             let tensor_data = load_tensor_data_with_key_map(mmaps, &key_map)?;
             Ok(VarBuilderYoke { tensor_data })
         })?;
-        Ok(Self { data: VBData::Mmap(yoke), device })
+        let used = Mutex::new(Default::default());
+        Ok(Self { data: VBData::Mmap(yoke), used, device })
     }
 
     pub fn from_bytes(data: Vec<Vec<u8>>, device: B) -> Result<Self> {
@@ -208,7 +211,8 @@ impl<B: Backend> VB<B> {
             let tensor_data = load_tensor_data_from_bytes(buffers)?;
             Ok(VarBuilderYokeBytes { tensor_data })
         })?;
-        Ok(Self { data: VBData::Bytes(yoke), device })
+        let used = Mutex::new(Default::default());
+        Ok(Self { data: VBData::Bytes(yoke), used, device })
     }
 
     pub fn from_bytes_with_key_map(
@@ -220,7 +224,8 @@ impl<B: Backend> VB<B> {
             let tensor_data = load_tensor_data_from_bytes_with_key_map(buffers, &key_map)?;
             Ok(VarBuilderYokeBytes { tensor_data })
         })?;
-        Ok(Self { data: VBData::Bytes(yoke), device })
+        let used = Mutex::new(Default::default());
+        Ok(Self { data: VBData::Bytes(yoke), used, device })
     }
 
     pub fn get_tensor(&self, name: &str) -> Option<&TensorData<'_>> {
@@ -237,6 +242,10 @@ impl<B: Backend> VB<B> {
         shape: impl Into<Shape>,
     ) -> Result<Tensor<T, B>> {
         let td = self.data.get_tensor(name);
+        if td.is_some() {
+            let mut t = self.used.lock().unwrap();
+            t.insert(name.to_string());
+        }
         make_tensor(td, name, shape, &self.device)
     }
 
@@ -303,5 +312,20 @@ impl<B: Backend> Path<B> {
         } else {
             [&self.path.join("."), tensor_name].join(".")
         }
+    }
+
+    pub fn check_all_used(&self) -> Result<()> {
+        let used = self.vb.used.lock().unwrap();
+        let mut unused = vec![];
+        for tensor_name in self.vb.tensor_names() {
+            if !used.contains(tensor_name) {
+                unused.push(tensor_name);
+            }
+        }
+        if !unused.is_empty() {
+            unused.sort();
+            crate::bail!("{} unused tensors {unused:?}", unused.len())
+        }
+        Ok(())
     }
 }
