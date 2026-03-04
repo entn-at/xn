@@ -256,6 +256,25 @@ impl<B: Backend> VB<B> {
     pub fn root(self) -> Path<B> {
         Path { vb: self.into(), path: vec![] }
     }
+
+    pub fn check_all_used(&self) -> Result<()> {
+        self.check_all_used_with_ignore(|_| false)
+    }
+
+    pub fn check_all_used_with_ignore(&self, ignore_f: impl Fn(&str) -> bool) -> Result<()> {
+        let used = self.used.lock().unwrap();
+        let mut unused = vec![];
+        for tensor_name in self.tensor_names() {
+            if !used.contains(tensor_name) && !ignore_f(tensor_name) {
+                unused.push(tensor_name);
+            }
+        }
+        if !unused.is_empty() {
+            unused.sort();
+            crate::bail!("{} unused tensors {unused:?}", unused.len())
+        }
+        Ok(())
+    }
 }
 
 #[derive(Clone)]
@@ -315,17 +334,10 @@ impl<B: Backend> Path<B> {
     }
 
     pub fn check_all_used(&self) -> Result<()> {
-        let used = self.vb.used.lock().unwrap();
-        let mut unused = vec![];
-        for tensor_name in self.vb.tensor_names() {
-            if !used.contains(tensor_name) {
-                unused.push(tensor_name);
-            }
-        }
-        if !unused.is_empty() {
-            unused.sort();
-            crate::bail!("{} unused tensors {unused:?}", unused.len())
-        }
-        Ok(())
+        self.vb.check_all_used()
+    }
+
+    pub fn check_all_used_with_ignore(&self, ignore_f: impl Fn(&str) -> bool) -> Result<()> {
+        self.vb.check_all_used_with_ignore(ignore_f)
     }
 }
