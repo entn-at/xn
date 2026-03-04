@@ -73,7 +73,7 @@ enum Voice {
 
 fn download_files(voice: &str) -> Result<(std::path::PathBuf, std::path::PathBuf, Voice)> {
     use hf_hub::{Repo, RepoType, api::sync::Api};
-    let repo_id = "kyutai/pocket-tts-without-voice-cloning";
+    let repo_id = "kyutai/pocket-tts";
     tracing::info!(?repo_id, "downloading weights...");
     let api = Api::new()?;
     let repo = api.repo(Repo::new(repo_id.to_string(), RepoType::Model));
