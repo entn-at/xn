@@ -1,10 +1,12 @@
 use crate::Tokenizer;
-use xn::nn::var_builder::Path;
+use xn::nn::{Linear, var_builder::Path};
 use xn::{Backend, Result, Tensor, WithDTypeF};
 
 pub struct LUTConditioner<T: WithDTypeF, B: Backend> {
     pub tokenizer: Box<dyn Tokenizer + Send + Sync>,
     embed: Tensor<T, B>,
+    learnt_padding: Option<Tensor<T, B>>,
+    output_proj: Option<Linear<T, B>>,
     pub dim: usize,
     pub output_dim: usize,
 }
@@ -18,7 +20,17 @@ impl<T: WithDTypeF, B: Backend> LUTConditioner<T, B> {
         output_dim: usize,
     ) -> Result<Self> {
         let embed = vb.tensor("embed.weight", (n_bins + 1, dim))?;
-        Ok(Self { tokenizer, embed, dim, output_dim })
+        let learnt_padding = if vb.contains("learnt_padding") {
+            Some(vb.tensor("learnt_padding", (1, 1, dim))?)
+        } else {
+            None
+        };
+        let output_proj = if vb.contains("output_proj.weight") {
+            Some(Linear::load(vb.pp("output_proj"), dim, output_dim)?)
+        } else {
+            None
+        };
+        Ok(Self { tokenizer, embed, dim, output_dim, learnt_padding, output_proj })
     }
 
     /// Tokenize text and return token ids.
@@ -38,6 +50,14 @@ impl<T: WithDTypeF, B: Backend> LUTConditioner<T, B> {
             self.embed.device(),
         )?;
         let emb = self.embed.index_select(&ids_t, 0)?;
-        emb.reshape((1, token_ids.len(), self.dim))
+        let emb = emb.reshape((1, token_ids.len(), self.dim))?;
+        match self.output_proj.as_ref() {
+            Some(proj) => proj.forward(&emb),
+            None => Ok(emb),
+        }
+    }
+
+    pub fn learnt_padding(&self) -> Option<&Tensor<T, B>> {
+        self.learnt_padding.as_ref()
     }
 }

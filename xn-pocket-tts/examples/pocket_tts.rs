@@ -27,6 +27,9 @@ struct Args {
     #[arg(long)]
     config: Option<String>,
 
+    #[arg(long)]
+    cfg_coef: Option<f32>,
+
     /// Output WAV file path
     #[arg(short, long, default_value = "output.wav")]
     output: std::path::PathBuf,
@@ -87,7 +90,6 @@ fn remap_key(name: &str) -> Option<String> {
     if name.contains("flow.w_s_t")
         || name.contains("quantizer.vq")
         || name.contains("quantizer.logvar_proj")
-        || name.contains("learnt_padding")
     {
         return None;
     }
@@ -270,6 +272,14 @@ fn run_for_device<Dev: Backend>(args: Args, dev: Dev) -> Result<()> {
     }
     // Init states
     let mut tts_state = model.init_flow_lm_state(1, max_seq_budget)?;
+    let mut cfg_state = match args.cfg_coef {
+        Some(1.0) | None => None,
+        Some(coef) => {
+            tracing::info!(?coef, "using custom cfg coefficient");
+            let null_state = model.init_flow_lm_state(1, max_seq_budget)?;
+            Some((coef, null_state))
+        }
+    };
     let mimi_state = model.init_mimi_state(1, 250)?;
 
     // Load voice embedding
@@ -306,6 +316,9 @@ fn run_for_device<Dev: Backend>(args: Args, dev: Dev) -> Result<()> {
         let mut tts_state = tts_state.clone();
         let mut mimi_state = mimi_state.clone();
         model.prompt_text(&mut tts_state, &tokens)?;
+        if let Some((_, ref mut null_state)) = cfg_state {
+            model.prompt_text_null(null_state)?;
+        }
         let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
         tracing::info!("done prompting with text conditioning in {elapsed_ms:.2}ms");
 
@@ -344,8 +357,16 @@ fn run_for_device<Dev: Backend>(args: Args, dev: Dev) -> Result<()> {
         });
 
         for step in 0..max_frames {
-            let (next_latent, is_eos) =
-                model.generate_step(&mut tts_state, &prev_latent, &mut rng)?;
+            let (next_latent, is_eos) = match cfg_state.as_mut() {
+                Some((coef, null_state)) => model.generate_step_cfg(
+                    &mut tts_state,
+                    null_state,
+                    *coef,
+                    &prev_latent,
+                    &mut rng,
+                )?,
+                None => model.generate_step(&mut tts_state, &prev_latent, &mut rng)?,
+            };
             latent_tx.send(next_latent.clone())?;
 
             if is_eos && eos_countdown.is_none() {
