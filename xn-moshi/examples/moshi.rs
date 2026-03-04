@@ -70,7 +70,7 @@ enum Command {
 }
 
 fn download_mimi_model() -> Result<std::path::PathBuf> {
-    use hf_hub::{api::sync::Api, Repo, RepoType};
+    use hf_hub::{Repo, RepoType, api::sync::Api};
     let repo_id = "kyutai/moshiko-candle-q8";
     println!("Downloading mimi model from {repo_id}...");
     let api = Api::new()?;
@@ -89,7 +89,7 @@ struct AsrFiles {
 }
 
 fn download_asr_model() -> Result<AsrFiles> {
-    use hf_hub::{api::sync::Api, Repo, RepoType};
+    use hf_hub::{Repo, RepoType, api::sync::Api};
     let repo_id = "kyutai/stt-2.6b-en-candle";
     println!("Downloading ASR model from {repo_id}...");
     let api = Api::new()?;
