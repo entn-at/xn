@@ -912,6 +912,31 @@ impl crate::Backend for crate::CpuDevice {
         Ok(())
     }
 
+    fn reduce_argmax<T: WithDTypeF>(
+        dst: &mut Self::Storage<i64>,
+        src: &Self::Storage<T>,
+        dim_size: usize,
+        outer_size: usize,
+        inner_size: usize,
+    ) -> Result<()> {
+        for outer in 0..outer_size {
+            for inner in 0..inner_size {
+                let mut max_val = T::neg_infinity();
+                let mut max_idx: usize = 0;
+                for d in 0..dim_size {
+                    let src_idx = outer * dim_size * inner_size + d * inner_size + inner;
+                    if src[src_idx].to_f32() > max_val.to_f32() {
+                        max_val = src[src_idx];
+                        max_idx = d;
+                    }
+                }
+                let dst_idx = outer * inner_size + inner;
+                dst[dst_idx] = max_idx as i64;
+            }
+        }
+        Ok(())
+    }
+
     fn reduce_sum<T: WithDTypeF>(
         dst: &mut Self::Storage<T>,
         src: &Self::Storage<T>,

@@ -1343,6 +1343,42 @@ impl crate::Backend for Device {
         Ok(())
     }
 
+    fn reduce_argmax<T: WithDTypeF>(
+        dst: &mut Self::Storage<i64>,
+        src: &Self::Storage<T>,
+        dim_size: usize,
+        outer_size: usize,
+        inner_size: usize,
+    ) -> Result<()> {
+        let src_numel = outer_size * dim_size * inner_size;
+        let num_outputs = outer_size * inner_size;
+        let el_to_sum_per_block = dim_size;
+
+        let dims: [usize; 3] = [outer_size, inner_size, dim_size];
+        let strides: [usize; 3] = [dim_size * inner_size, 1, inner_size];
+        let info: Vec<usize> = dims.iter().chain(strides.iter()).copied().collect();
+        let info_dev = dst.device.stream.clone_htod(&info)?;
+
+        let kname = kernel_name::<T>("fast_argmax");
+        let func = dst.device.get_func(&kname, PTXModule::Reduce)?;
+
+        const BLOCK_SIZE: u32 = 1024;
+        let block_dim = (BLOCK_SIZE, 1, 1);
+        let grid_dim = (num_outputs as u32, 1, 1);
+        let cfg = LaunchConfig { block_dim, grid_dim, shared_mem_bytes: 0 };
+
+        let num_dims: usize = 3;
+        let mut launch_args = dst.device.stream.launch_builder(&func);
+        launch_args.arg(&src_numel);
+        launch_args.arg(&el_to_sum_per_block);
+        launch_args.arg(&num_dims);
+        launch_args.arg(&info_dev);
+        launch_args.arg(&src.data);
+        launch_args.arg(&mut dst.data);
+        unsafe { launch_args.launch(cfg) }?;
+        Ok(())
+    }
+
     fn reduce_sum<T: WithDTypeF>(
         dst: &mut Self::Storage<T>,
         src: &Self::Storage<T>,

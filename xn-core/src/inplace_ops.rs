@@ -544,6 +544,21 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
         Ok(())
     }
 
+    pub fn reduce_argmax_<U: crate::WithDTypeF>(
+        dst: &Tensor<i64, B>,
+        src: &Tensor<U, B>,
+        dim: usize,
+    ) -> Result<()> {
+        let src_dims = src.dims();
+        let dim_size = src_dims[dim];
+        let outer_size: usize = src_dims[..dim].iter().product::<usize>().max(1);
+        let inner_size: usize = src_dims[dim + 1..].iter().product::<usize>().max(1);
+        let mut dst_data = dst.storage_mut()?;
+        let src_data = src.storage()?;
+        B::reduce_argmax(&mut *dst_data, &*src_data, dim_size, outer_size, inner_size)?;
+        Ok(())
+    }
+
     pub fn reduce_sum_(&self, src: &Self, dim: usize) -> Result<()> {
         let src_dims = src.dims();
         let dim_size = src_dims[dim];

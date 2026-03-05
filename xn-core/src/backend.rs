@@ -233,6 +233,16 @@ pub trait Backend: Sized + Clone + 'static + Sync + Send + std::fmt::Debug {
         inner_size: usize,
     ) -> Result<()>;
 
+    /// Reduce argmax along a dimension.
+    /// Returns i64 indices.
+    fn reduce_argmax<T: crate::WithDTypeF>(
+        dst: &mut Self::Storage<i64>,
+        src: &Self::Storage<T>,
+        dim_size: usize,
+        outer_size: usize,
+        inner_size: usize,
+    ) -> Result<()>;
+
     /// Reduce sum along a dimension.
     fn reduce_sum<T: crate::WithDTypeF>(
         dst: &mut Self::Storage<T>,
