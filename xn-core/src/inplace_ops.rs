@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::error::check_same_shape;
 use crate::{Backend, Result, Tensor, TensorOrView, WithDType, WithDTypeF};
 
@@ -82,7 +84,15 @@ macro_rules! binary_op {
 }
 
 impl<T: WithDType, B: Backend> Tensor<T, B> {
+    fn check_not_same_storage(&self, other: &Self, op: &str) -> Result<()> {
+        if Arc::ptr_eq(&self.data, &other.data) {
+            crate::bail!("{op}: cannot use when dst and src share their storage");
+        }
+        Ok(())
+    }
+
     pub(crate) fn inplace_binary(&self, other: &Self, op: BinaryOp) -> Result<()> {
+        self.check_not_same_storage(other, op.as_str())?;
         check_same_shape(&self.shape, &other.shape, op.as_str())?;
         let len = self.elem_count();
         let mut dst = self.storage_mut()?;
@@ -92,6 +102,8 @@ impl<T: WithDType, B: Backend> Tensor<T, B> {
     }
 
     pub fn binary_(&self, lhs: &Self, rhs: &Self, op: BinaryOp) -> Result<()> {
+        self.check_not_same_storage(lhs, op.as_str())?;
+        self.check_not_same_storage(rhs, op.as_str())?;
         check_same_shape(&lhs.shape, &rhs.shape, op.as_str())?;
         check_same_shape(&self.shape, &lhs.shape, op.as_str())?;
         let len = self.elem_count();
@@ -103,6 +115,8 @@ impl<T: WithDType, B: Backend> Tensor<T, B> {
     }
 
     pub fn broadcast_binary_(&self, lhs: &Self, rhs: &Self, op: BinaryOp) -> Result<()> {
+        self.check_not_same_storage(lhs, "broadcast_binary")?;
+        self.check_not_same_storage(rhs, "broadcast_binary")?;
         let dst_shape = self.dims();
         let (dst_shape, lhs_strides, rhs_strides) =
             compute_broadcast_strides(dst_shape, lhs.dims(), rhs.dims())?;
@@ -138,6 +152,7 @@ impl<T: WithDType, B: Backend> Tensor<T, B> {
     }
 
     pub fn transpose_(&self, src: &Self, dim1: usize, dim2: usize) -> Result<()> {
+        self.check_not_same_storage(src, "transpose_")?;
         let dims = src.dims();
         let len = self.elem_count();
         let mut dst = self.storage_mut()?;
@@ -151,6 +166,7 @@ impl<T: WithDType, B: Backend> Tensor<T, B> {
     }
 
     pub fn copy_(&self, src: &Self) -> Result<()> {
+        self.check_not_same_storage(src, "copy_")?;
         check_same_shape(&self.shape, &src.shape, "copy_")?;
         let len = self.elem_count();
         let mut dst = self.storage_mut()?;
@@ -175,6 +191,7 @@ impl<T: WithDType, B: Backend> Tensor<T, B> {
     }
 
     pub fn scale_add_(&self, src: &Self, scale: T, add: T) -> Result<()> {
+        self.check_not_same_storage(src, "scale_add_")?;
         check_same_shape(&self.shape, &src.shape, "scale_add_")?;
         let len = self.elem_count();
         let mut dst = self.storage_mut()?;
@@ -202,6 +219,7 @@ impl<B: Backend> Tensor<f32, B> {
 
 impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
     pub fn unary_(&self, src: &Self, op: UnaryOp) -> Result<()> {
+        self.check_not_same_storage(src, op.as_str())?;
         check_same_shape(&self.shape, &src.shape, op.as_str())?;
         let len = self.elem_count();
         let mut dst = self.storage_mut()?;
@@ -271,6 +289,7 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
     }
 
     pub fn softmax_(&self, src: &Self) -> Result<()> {
+        self.check_not_same_storage(src, "softmax_")?;
         check_same_shape(&self.shape, &src.shape, "softmax_")?;
         let dim_m1 = self.shape.dims().last().copied().unwrap_or(1);
         let d = self.elem_count() / dim_m1;
@@ -300,6 +319,8 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
     }
 
     pub fn rms_norm_(&self, src: &Self, alpha: &Self, eps: f32) -> Result<()> {
+        self.check_not_same_storage(src, "rms_norm_")?;
+        self.check_not_same_storage(alpha, "rms_norm_")?;
         check_same_shape(&self.shape, &src.shape, "rms_norm_ src")?;
         if eps <= 0.0 {
             crate::bail!("rms_norm_ eps must be positive");
@@ -323,6 +344,9 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
         eps: f32,
         remove_mean: bool,
     ) -> Result<()> {
+        self.check_not_same_storage(src, "layer_norm_")?;
+        self.check_not_same_storage(weight, "layer_norm_")?;
+        self.check_not_same_storage(bias, "layer_norm_")?;
         check_same_shape(&self.shape, &src.shape, "layer_norm_ src")?;
         if eps <= 0.0 {
             crate::bail!("layer_norm_ eps must be positive");
@@ -470,6 +494,9 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
     }
 
     pub fn rope_(&self, src: &Self, cos: &Self, sin: &Self, pos: usize) -> Result<()> {
+        self.check_not_same_storage(src, "rope_")?;
+        self.check_not_same_storage(cos, "rope_")?;
+        self.check_not_same_storage(sin, "rope_")?;
         check_same_shape(&self.shape, &src.shape, "rope_ src")?;
         check_same_shape(&cos.shape, &sin.shape, "rope_ cos/sin")?;
         let (b, h, t, d) = self.dims4()?;
@@ -498,6 +525,9 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
     }
 
     pub fn rope_i_(&self, src: &Self, cos: &Self, sin: &Self, pos: usize) -> Result<()> {
+        self.check_not_same_storage(src, "rope_i_")?;
+        self.check_not_same_storage(cos, "rope_i_")?;
+        self.check_not_same_storage(sin, "rope_i_")?;
         check_same_shape(&self.shape, &src.shape, "rope_i_ src")?;
         check_same_shape(&cos.shape, &sin.shape, "rope_i_ cos/sin")?;
         let (b, h, t, d) = self.dims4()?;
@@ -526,6 +556,7 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
     }
 
     pub fn reduce_max_(&self, src: &Self, dim: usize) -> Result<()> {
+        self.check_not_same_storage(src, "reduce_max_")?;
         let src_dims = src.dims();
         let dim_size = src_dims[dim];
         let outer_size: usize = src_dims[..dim].iter().product::<usize>().max(1);
@@ -537,6 +568,7 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
     }
 
     pub fn reduce_min_(&self, src: &Self, dim: usize) -> Result<()> {
+        self.check_not_same_storage(src, "reduce_min_")?;
         let src_dims = src.dims();
         let dim_size = src_dims[dim];
         let outer_size: usize = src_dims[..dim].iter().product::<usize>().max(1);
@@ -578,6 +610,7 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
     }
 
     pub fn reduce_sum_(&self, src: &Self, dim: usize) -> Result<()> {
+        self.check_not_same_storage(src, "reduce_sum_")?;
         let src_dims = src.dims();
         let dim_size = src_dims[dim];
         let outer_size: usize = src_dims[..dim].iter().product::<usize>().max(1);
@@ -598,6 +631,8 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
         dilation: usize,
         groups: usize,
     ) -> Result<()> {
+        self.check_not_same_storage(src, "conv1d_")?;
+        self.check_not_same_storage(kernel, "conv1d_")?;
         let src_dims = src.dims();
         let kernel_dims = kernel.dims();
         if src_dims.len() != 3 {
@@ -661,6 +696,8 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
         output_padding: usize,
         groups: usize,
     ) -> Result<()> {
+        self.check_not_same_storage(src, "conv_transpose1d_")?;
+        self.check_not_same_storage(kernel, "conv_transpose1d_")?;
         let src_dims = src.dims();
         let kernel_dims = kernel.dims();
         if src_dims.len() != 3 {
