@@ -248,9 +248,6 @@ fn run_for_device<Dev: Backend>(args: Args, dev: Dev) -> Result<()> {
         }
     };
 
-    let vb = VB::load_with_key_map(&[&model_path], dev.clone(), remap_key)?;
-    let root = vb.root();
-
     let tokenizer_path = tokenizer_path.to_str().context("invalid tokenizer path")?;
     let sp = sentencepiece::SentencePieceProcessor::open(tokenizer_path)?;
     let tokenizer = SpTokenizer(sp);
@@ -269,7 +266,12 @@ fn run_for_device<Dev: Backend>(args: Args, dev: Dev) -> Result<()> {
         xn::with_f16c()
     );
 
-    let model: TTSModel<f32, Dev> = TTSModel::load(&root, Box::new(tokenizer), &cfg)?;
+    let vb = VB::load_with_key_map(&[&model_path], dev.clone(), remap_key)?.root();
+    let model: TTSModel<f32, Dev> = TTSModel::load(&vb, Box::new(tokenizer), &cfg)?;
+    vb.check_all_used_with_ignore(|v| {
+        v == "flow_lm.condition_provider.conditioners.speaker_wavs.learnt_padding"
+            || v.starts_with("mimi.quantizer")
+    })?;
     tracing::info!("model loaded successfully!");
 
     let mut max_seq_budget = 0;
