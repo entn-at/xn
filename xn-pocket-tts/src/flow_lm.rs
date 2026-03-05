@@ -189,6 +189,42 @@ impl<T: WithDTypeF, B: Backend> FlowLM<T, B> {
         Ok((latent, is_eos))
     }
 
+    #[allow(clippy::too_many_arguments)]
+    pub fn sample_next_latent_cfg(
+        &self,
+        sequence: &Tensor<T, B>,
+        text_embeddings: &Tensor<T, B>,
+        state: &mut FlowLMState<T, B>,
+        null_state: &mut FlowLMState<T, B>,
+        cfg_coef: f32,
+        lsd_decode_steps: usize,
+        rng: &mut impl Rng,
+        eos_threshold: f32,
+    ) -> Result<(Tensor<T, B>, bool)> {
+        let (b, s, _) = sequence.dims3()?;
+        let dev = sequence.device();
+
+        let sequence = self.replace_nan_with_bos(sequence)?;
+        let input = self.input_linear.forward(&sequence)?;
+        let t_out = self.backbone(&input, text_embeddings, s, state)?;
+        let t_len = t_out.dim(1usize)?;
+        let t_out = t_out.narrow(1, t_len - 1..t_len)?.contiguous()?;
+        let t_out = t_out.reshape((b, self.dim))?;
+        let null_out = self.backbone(&input, text_embeddings, s, null_state)?;
+        let null_out =
+            null_out.narrow(1, t_len - 1..t_len)?.contiguous()?.reshape((b, self.dim))?;
+        let s = T::from_f32(cfg_coef);
+        let t_out = t_out.sub(&null_out)?.scale(s)?.add(&null_out)?;
+        let eos_logit = self.out_eos.forward(&t_out)?;
+        let eos_val = eos_logit.to_vec()?;
+        let is_eos = eos_val[0].to_f32() > eos_threshold;
+        let noise_data: Vec<T> = (0..b * self.ldim).map(|_| T::from_f32(rng.sample())).collect();
+        let noise = Tensor::from_vec(noise_data, (b, self.ldim), dev)?;
+        let latent = lsd_decode(&self.flow_net, &t_out, &noise, lsd_decode_steps)?;
+        let latent = latent.reshape((b, 1, self.ldim))?;
+        Ok((latent, is_eos))
+    }
+
     /// Replace NaN values in sequence with bos_emb.
     fn replace_nan_with_bos(&self, sequence: &Tensor<T, B>) -> Result<Tensor<T, B>> {
         let data = sequence.to_vec()?;

@@ -238,13 +238,18 @@ fn audio_to_audio<Dev: Backend>(
     // --- Load model ---
     let model_path = download_mimi_model()?;
     println!("Loading model weights...");
-    let vb = VB::load(&[model_path], dev.clone())?;
+    let vb = VB::load(&[model_path], dev.clone())?.root();
     let config = mimi::Config::v0_1(Some(codebooks));
     println!(
         "  sample_rate={}, frame_rate={}, codebooks={}",
         config.sample_rate, config.frame_rate, codebooks
     );
-    let model: Mimi<f32, Dev> = Mimi::load(&vb.root(), config)?;
+    let model: Mimi<f32, Dev> = Mimi::load(&vb, config)?;
+    vb.check_all_used_with_ignore(|s| {
+        s.ends_with("_codebook._initialized")
+            || s.ends_with("_codebook.cluster_usage")
+            || s.ends_with("_codebook.embedding_sum")
+    })?;
     println!("  Model loaded");
 
     // --- Streaming encode ---

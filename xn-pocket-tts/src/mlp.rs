@@ -17,7 +17,6 @@ pub struct TimestepEmbedder<T: WithDTypeF, B: Backend> {
     linear2: Linear<T, B>,
     rms_norm: LayerNorm<T, B>,
     freqs: Tensor<T, B>,
-    scale: T,
 }
 
 impl<T: WithDTypeF, B: Backend> TimestepEmbedder<T, B> {
@@ -30,10 +29,9 @@ impl<T: WithDTypeF, B: Backend> TimestepEmbedder<T, B> {
         let ln_b = ln_w.zeros_like()?;
         // The python implementation of rms-norm uses an unbiased variance estimator while the one
         // in xn uses a biased one. We adjust it by this factor.
-        let rms_norm = LayerNorm::new(ln_w, ln_b, 1e-5).remove_mean(false);
-        let scale = T::from_f32(((hidden_size - 1) as f32 / hidden_size as f32).sqrt());
+        let rms_norm = LayerNorm::new(ln_w, ln_b, 1e-5)?.remove_mean(false).unbiased(true);
         let freqs = vb.tensor("freqs", (frequency_embedding_size / 2,))?;
-        Ok(Self { linear1, linear2, rms_norm, freqs, scale })
+        Ok(Self { linear1, linear2, rms_norm, freqs })
     }
 
     #[tracing::instrument(name = "ts-embedder", skip_all)]
@@ -46,7 +44,7 @@ impl<T: WithDTypeF, B: Backend> TimestepEmbedder<T, B> {
         let mut x = self.linear1.forward(&embedding)?;
         x = x.silu()?;
         x = self.linear2.forward(&x)?;
-        x = self.rms_norm.forward(&x)?.scale(self.scale)?;
+        x = self.rms_norm.forward(&x)?;
         Ok(x)
     }
 }
@@ -103,7 +101,7 @@ impl<T: WithDTypeF, B: Backend> FinalLayer<T, B> {
     pub fn load(vb: &Path<B>, model_channels: usize, out_channels: usize) -> Result<Self> {
         let zeros = Tensor::zeros(model_channels, vb.device())?;
         let ones = zeros.add_scalar(T::from_f32(1.0))?;
-        let norm_final = LayerNorm::new(ones, zeros, 1e-6);
+        let norm_final = LayerNorm::new(ones, zeros, 1e-6)?;
         let linear = Linear::load_b(vb.pp("linear"), model_channels, out_channels)?;
         let ada = vb.pp("adaLN_modulation");
         let ada_ln_silu_linear = Linear::load_b(ada.pp("1"), model_channels, 2 * model_channels)?;
@@ -115,7 +113,6 @@ impl<T: WithDTypeF, B: Backend> FinalLayer<T, B> {
         let model_channels = x.dim(D::Minus1)?;
         let shift = ada.narrow(D::Minus1, 0..model_channels)?.contiguous()?;
         let scale = ada.narrow(D::Minus1, model_channels..2 * model_channels)?.contiguous()?;
-
         let x = self.norm_final.forward(x)?;
         let x = modulate(&x, &shift, &scale)?;
         self.linear.forward(&x)

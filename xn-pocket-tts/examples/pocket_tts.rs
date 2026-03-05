@@ -1,3 +1,6 @@
+#[path = "audio_helpers.rs"]
+mod audio_helpers;
+
 use anyhow::{Context, Result};
 use clap::Parser;
 use pocket_tts::tts_model::{TTSConfig, TTSModel, prepare_text_prompt, split_into_best_sentences};
@@ -27,13 +30,16 @@ struct Args {
     #[arg(long)]
     config: Option<String>,
 
+    #[arg(long)]
+    cfg_coef: Option<f32>,
+
     /// Output WAV file path
     #[arg(short, long, default_value = "output.wav")]
     output: std::path::PathBuf,
 
     /// Voice to use
-    #[arg(short, long, default_value = "alba")]
-    voice: String,
+    #[arg(short, long)]
+    voice: Option<String>,
 
     /// Sampling temperature
     #[arg(short, long, default_value_t = 0.7)]
@@ -60,11 +66,14 @@ struct Args {
 const VOICES: &[&str] =
     &["alba", "marius", "javert", "jean", "fantine", "cosette", "eponine", "azelma"];
 
-fn download_files(
-    voice: &str,
-) -> Result<(std::path::PathBuf, std::path::PathBuf, std::path::PathBuf)> {
+enum Voice {
+    Safetensors(std::path::PathBuf),
+    Audio(String),
+}
+
+fn download_files(voice: &str) -> Result<(std::path::PathBuf, std::path::PathBuf, Voice)> {
     use hf_hub::{Repo, RepoType, api::sync::Api};
-    let repo_id = "kyutai/pocket-tts-without-voice-cloning";
+    let repo_id = "kyutai/pocket-tts";
     tracing::info!(?repo_id, "downloading weights...");
     let api = Api::new()?;
     let repo = api.repo(Repo::new(repo_id.to_string(), RepoType::Model));
@@ -75,11 +84,17 @@ fn download_files(
     let tokenizer_path = repo.get("tokenizer.model").context("tokenizer not found")?;
     tracing::info!(?tokenizer_path, "tokenizer downloaded");
 
-    let voice_file = format!("embeddings/{voice}.safetensors");
-    let voice_path =
-        repo.get(&voice_file).with_context(|| format!("voice embedding '{voice}' not found"))?;
-    tracing::info!(?voice_path, "voice embedding downloaded");
-    Ok((model_path, tokenizer_path, voice_path))
+    let voice = if VOICES.contains(&voice) {
+        let voice_file = format!("embeddings/{voice}.safetensors");
+        let voice_path = repo
+            .get(&voice_file)
+            .with_context(|| format!("voice embedding '{voice}' not found"))?;
+        tracing::info!(?voice_path, "voice embedding downloaded");
+        Voice::Safetensors(voice_path)
+    } else {
+        Voice::Audio(voice.to_string())
+    };
+    Ok((model_path, tokenizer_path, voice))
 }
 
 fn remap_key(name: &str) -> Option<String> {
@@ -87,7 +102,6 @@ fn remap_key(name: &str) -> Option<String> {
     if name.contains("flow.w_s_t")
         || name.contains("quantizer.vq")
         || name.contains("quantizer.logvar_proj")
-        || name.contains("learnt_padding")
     {
         return None;
     }
@@ -131,10 +145,6 @@ fn init_tracing(chrome_tracing: bool) -> Option<tracing_chrome::FlushGuard> {
 fn main() -> Result<()> {
     let args = Args::parse();
     let _guard = init_tracing(args.chrome_tracing);
-
-    if !VOICES.contains(&args.voice.as_str()) {
-        anyhow::bail!("Unknown voice '{}'. Available voices: {}", args.voice, VOICES.join(", "));
-    }
 
     #[cfg(feature = "cuda")]
     {
@@ -215,7 +225,7 @@ where
 }
 
 fn run_for_device<Dev: Backend>(args: Args, dev: Dev) -> Result<()> {
-    let (model_path, tokenizer_path, voice_path, cfg) = match args.config.as_ref() {
+    let (model_path, tokenizer_path, voice, cfg) = match args.config.as_ref() {
         Some(config) => {
             let config = std::fs::canonicalize(config)?;
             let parent = config.parent().context("config path has no parent")?;
@@ -224,11 +234,17 @@ fn run_for_device<Dev: Backend>(args: Args, dev: Dev) -> Result<()> {
             tracing::info!(?config, "using local config");
             let config: pocket_tts::tts_model::TTSConfig =
                 serde_json::from_str(&std::fs::read_to_string(config)?)?;
-            (model_path, tokenizer_path, None, config)
+            let voice = args.voice.map(Voice::Audio);
+            (model_path, tokenizer_path, voice, config)
         }
         None => {
-            let (model_path, tokenizer_path, voice_path) = download_files(&args.voice)?;
-            (model_path, tokenizer_path, Some(voice_path), TTSConfig::v202601(args.temperature))
+            let voice = args.voice.unwrap_or("alba".to_string());
+            if !VOICES.contains(&voice.as_str()) && !std::path::PathBuf::from(&voice).exists() {
+                anyhow::bail!("unknown voice '{voice}'. Available voices: {}", VOICES.join(", "));
+            }
+
+            let (model_path, tokenizer_path, voice) = download_files(&voice)?;
+            (model_path, tokenizer_path, Some(voice), TTSConfig::v202601(args.temperature))
         }
     };
 
@@ -270,23 +286,59 @@ fn run_for_device<Dev: Backend>(args: Args, dev: Dev) -> Result<()> {
     }
     // Init states
     let mut tts_state = model.init_flow_lm_state(1, max_seq_budget)?;
+    let mut cfg_state = match args.cfg_coef {
+        Some(1.0) | None => None,
+        Some(coef) => {
+            tracing::info!(?coef, "using custom cfg coefficient");
+            let null_state = model.init_flow_lm_state(1, max_seq_budget)?;
+            Some((coef, null_state))
+        }
+    };
     let mimi_state = model.init_mimi_state(1, 250)?;
 
     // Load voice embedding
-    if let Some(voice_path) = voice_path {
-        let voice_vb = VB::load(&[&voice_path], dev.clone())?;
-        let voice_names = voice_vb.tensor_names();
-        let voice_key = voice_names.first().context("no tensors found in voice embedding file")?;
-        let voice_td = voice_vb.get_tensor(voice_key).context("voice tensor not found")?;
-        let voice_shape = &voice_td.shape;
-        let voice_dims = voice_shape.dims();
+    if let Some(voice) = voice {
+        let voice_emb = match voice {
+            Voice::Safetensors(voice_path) => {
+                let voice_vb = VB::load(&[&voice_path], dev.clone())?;
+                let voice_names = voice_vb.tensor_names();
+                let voice_key =
+                    voice_names.first().context("no tensors found in voice embedding file")?;
+                let voice_td = voice_vb.get_tensor(voice_key).context("voice tensor not found")?;
+                let voice_shape = &voice_td.shape;
+                let voice_dims = voice_shape.dims();
 
-        // Load as raw tensor and reshape to [1, T, dim]
-        let voice_emb: Tensor<f32, Dev> = voice_vb.tensor(voice_key, voice_shape.clone())?;
-        let voice_emb = if voice_dims.len() == 2 {
-            voice_emb.reshape((1, voice_dims[0], voice_dims[1]))?
-        } else {
-            voice_emb
+                // Load as raw tensor and reshape to [1, T, dim]
+                let voice_emb: Tensor<f32, Dev> =
+                    voice_vb.tensor(voice_key, voice_shape.clone())?;
+                if voice_dims.len() == 2 {
+                    voice_emb.reshape((1, voice_dims[0], voice_dims[1]))?
+                } else {
+                    voice_emb
+                }
+            }
+            Voice::Audio(path) => {
+                tracing::info!("loading voice from audio file {}", path);
+                let (pcm, sample_rate) = audio_helpers::pcm_decode(&path)?;
+                let sample_rate = sample_rate as usize;
+                let pcm = if sample_rate != cfg.mimi.sample_rate {
+                    audio_helpers::resample(&pcm, sample_rate, cfg.mimi.sample_rate)?
+                } else {
+                    pcm
+                };
+                tracing::info!("loaded audio with {} samples", pcm.len());
+                // Trim it to 10s max.
+                let pcm = if pcm.len() > cfg.mimi.sample_rate * 10 {
+                    tracing::info!("trimming audio to 10 seconds");
+                    pcm[..cfg.mimi.sample_rate * 10].to_vec()
+                } else {
+                    pcm
+                };
+                let pcm_tensor = Tensor::from_vec(pcm, (1, 1, ()), &dev)?;
+                let encoded_audio = model.encode_audio(&pcm_tensor)?;
+                tracing::info!(?encoded_audio, "encoded audio to latent");
+                encoded_audio
+            }
         };
         // Prompt with audio conditioning
         tracing::info!("prompting with voice conditioning ({} frames)...", voice_emb.dim(1usize)?);
@@ -306,6 +358,9 @@ fn run_for_device<Dev: Backend>(args: Args, dev: Dev) -> Result<()> {
         let mut tts_state = tts_state.clone();
         let mut mimi_state = mimi_state.clone();
         model.prompt_text(&mut tts_state, &tokens)?;
+        if let Some((_, ref mut null_state)) = cfg_state {
+            model.prompt_text_null(null_state)?;
+        }
         let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
         tracing::info!("done prompting with text conditioning in {elapsed_ms:.2}ms");
 
@@ -344,8 +399,16 @@ fn run_for_device<Dev: Backend>(args: Args, dev: Dev) -> Result<()> {
         });
 
         for step in 0..max_frames {
-            let (next_latent, is_eos) =
-                model.generate_step(&mut tts_state, &prev_latent, &mut rng)?;
+            let (next_latent, is_eos) = match cfg_state.as_mut() {
+                Some((coef, null_state)) => model.generate_step_cfg(
+                    &mut tts_state,
+                    null_state,
+                    *coef,
+                    &prev_latent,
+                    &mut rng,
+                )?,
+                None => model.generate_step(&mut tts_state, &prev_latent, &mut rng)?,
+            };
             latent_tx.send(next_latent.clone())?;
 
             if is_eos && eos_countdown.is_none() {

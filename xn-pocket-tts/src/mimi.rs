@@ -184,14 +184,11 @@ impl<T: WithDTypeF, B: Backend> MimiModel<T, B> {
     pub fn encode_to_latent(&self, x: &Tensor<T, B>) -> Result<Tensor<T, B>> {
         let frame_size = self.frame_size();
         let x = pad_for_conv1d(x, frame_size, frame_size)?;
-
         let mut enc_state = self.encoder.init_state(x.dim(0usize)?)?;
         let emb = self.encoder.forward(&x, &mut enc_state)?;
-
         let mut et_state = self.encoder_transformer.init_state(x.dim(0usize)?, 8192)?;
         let outs = self.encoder_transformer.forward(&emb, &mut et_state)?;
         let emb = &outs[0];
-
         // Downsample to frame rate
         match &self.downsample {
             Some(ds) => ds.forward_no_state(emb),
