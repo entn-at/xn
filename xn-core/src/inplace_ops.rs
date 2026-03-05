@@ -5,6 +5,9 @@ use crate::{Backend, Result, Tensor, TensorOrView, WithDType, WithDTypeF};
 pub enum UnaryOp {
     Cos,
     Sin,
+    Exp,
+    Log,
+    Neg,
     Sqr,
     Sqrt,
     Rsqrt,
@@ -22,6 +25,9 @@ impl UnaryOp {
         match self {
             UnaryOp::Cos => "cos",
             UnaryOp::Sin => "sin",
+            UnaryOp::Exp => "exp",
+            UnaryOp::Log => "log",
+            UnaryOp::Neg => "neg",
             UnaryOp::Sqr => "sqr",
             UnaryOp::Sqrt => "sqrt",
             UnaryOp::Rsqrt => "rsqrt",
@@ -210,6 +216,18 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
 
     pub fn sin_(&self, src: &Self) -> Result<()> {
         self.unary_(src, UnaryOp::Sin)
+    }
+
+    pub fn exp_(&self, src: &Self) -> Result<()> {
+        self.unary_(src, UnaryOp::Exp)
+    }
+
+    pub fn log_(&self, src: &Self) -> Result<()> {
+        self.unary_(src, UnaryOp::Log)
+    }
+
+    pub fn neg_(&self, src: &Self) -> Result<()> {
+        self.unary_(src, UnaryOp::Neg)
     }
 
     pub fn gelu_erf_(&self, src: &Self) -> Result<()> {

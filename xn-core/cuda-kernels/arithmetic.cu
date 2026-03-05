@@ -153,6 +153,27 @@ __device__ void unary_sin(const size_t numel, const T * src, T * dst) {
 }
 
 template <typename T>
+__device__ void unary_exp(const size_t numel, const T * src, T * dst) {
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= numel) return;
+    dst[idx] = from_float<T>(expf(to_float(src[idx])));
+}
+
+template <typename T>
+__device__ void unary_log(const size_t numel, const T * src, T * dst) {
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= numel) return;
+    dst[idx] = from_float<T>(logf(to_float(src[idx])));
+}
+
+template <typename T>
+__device__ void unary_neg(const size_t numel, const T * src, T * dst) {
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= numel) return;
+    dst[idx] = from_float<T>(-to_float(src[idx]));
+}
+
+template <typename T>
 __device__ void unary_sqr(const size_t numel, const T * src, T * dst) {
     const int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= numel) return;
@@ -249,6 +270,27 @@ __device__ void inplace_sin(const size_t numel, T * dst) {
     const int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= numel) return;
     dst[idx] = from_float<T>(sinf(to_float(dst[idx])));
+}
+
+template <typename T>
+__device__ void inplace_exp(const size_t numel, T * dst) {
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= numel) return;
+    dst[idx] = from_float<T>(expf(to_float(dst[idx])));
+}
+
+template <typename T>
+__device__ void inplace_log(const size_t numel, T * dst) {
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= numel) return;
+    dst[idx] = from_float<T>(logf(to_float(dst[idx])));
+}
+
+template <typename T>
+__device__ void inplace_neg(const size_t numel, T * dst) {
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= numel) return;
+    dst[idx] = from_float<T>(-to_float(dst[idx]));
 }
 
 template <typename T>
@@ -395,6 +437,18 @@ __device__ void inplace_sigmoid(const size_t numel, T * dst) {
       const size_t numel, const TYPENAME *src, TYPENAME *dst) { \
     unary_sin<TYPENAME>(numel, src, dst); \
   } \
+  extern "C" __global__ void unary_exp_##RUST_NAME( \
+      const size_t numel, const TYPENAME *src, TYPENAME *dst) { \
+    unary_exp<TYPENAME>(numel, src, dst); \
+  } \
+  extern "C" __global__ void unary_log_##RUST_NAME( \
+      const size_t numel, const TYPENAME *src, TYPENAME *dst) { \
+    unary_log<TYPENAME>(numel, src, dst); \
+  } \
+  extern "C" __global__ void unary_neg_##RUST_NAME( \
+      const size_t numel, const TYPENAME *src, TYPENAME *dst) { \
+    unary_neg<TYPENAME>(numel, src, dst); \
+  } \
   extern "C" __global__ void unary_sqr_##RUST_NAME( \
       const size_t numel, const TYPENAME *src, TYPENAME *dst) { \
     unary_sqr<TYPENAME>(numel, src, dst); \
@@ -444,6 +498,18 @@ __device__ void inplace_sigmoid(const size_t numel, T * dst) {
   extern "C" __global__ void inplace_sin_##RUST_NAME( \
       const size_t numel, TYPENAME *dst) { \
     inplace_sin<TYPENAME>(numel, dst); \
+  } \
+  extern "C" __global__ void inplace_exp_##RUST_NAME( \
+      const size_t numel, TYPENAME *dst) { \
+    inplace_exp<TYPENAME>(numel, dst); \
+  } \
+  extern "C" __global__ void inplace_log_##RUST_NAME( \
+      const size_t numel, TYPENAME *dst) { \
+    inplace_log<TYPENAME>(numel, dst); \
+  } \
+  extern "C" __global__ void inplace_neg_##RUST_NAME( \
+      const size_t numel, TYPENAME *dst) { \
+    inplace_neg<TYPENAME>(numel, dst); \
   } \
   extern "C" __global__ void inplace_sqr_##RUST_NAME( \
       const size_t numel, TYPENAME *dst) { \

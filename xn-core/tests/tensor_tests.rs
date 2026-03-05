@@ -1475,3 +1475,77 @@ fn test_randn_shape_impl<B: Backend>(dev: &B) -> Result<()> {
     Ok(())
 }
 test_both_backends!(test_randn_shape, test_randn_shape_impl);
+
+// =============================================================================
+// Unary op tests
+// =============================================================================
+
+fn assert_approx_eq(a: &[f32], b: &[f32], tol: f32) {
+    assert_eq!(a.len(), b.len(), "length mismatch: {} vs {}", a.len(), b.len());
+    for (i, (x, y)) in a.iter().zip(b).enumerate() {
+        assert!((x - y).abs() < tol, "mismatch at index {i}: {x} vs {y}");
+    }
+}
+
+fn test_exp_impl<B: Backend>(dev: &B) -> Result<()> {
+    let data = vec![0.0f32, 1.0, -1.0, 2.0];
+    let expected: Vec<f32> = data.iter().map(|x| x.exp()).collect();
+    let src: Tensor<f32, B> = Tensor::from_vec(data, 4, dev)?;
+    let dst: Tensor<f32, B> = Tensor::zeros(4, dev)?;
+    dst.exp_(&src)?;
+    assert_approx_eq(&dst.to_vec()?, &expected, 1e-6);
+    Ok(())
+}
+test_both_backends!(test_exp, test_exp_impl);
+
+fn test_log_impl<B: Backend>(dev: &B) -> Result<()> {
+    let data = vec![1.0f32, 2.0, 0.5, 10.0];
+    let expected: Vec<f32> = data.iter().map(|x| x.ln()).collect();
+    let src: Tensor<f32, B> = Tensor::from_vec(data, 4, dev)?;
+    let dst: Tensor<f32, B> = Tensor::zeros(4, dev)?;
+    dst.log_(&src)?;
+    assert_approx_eq(&dst.to_vec()?, &expected, 1e-6);
+    Ok(())
+}
+test_both_backends!(test_log, test_log_impl);
+
+fn test_neg_impl<B: Backend>(dev: &B) -> Result<()> {
+    let data = vec![1.0f32, -2.0, 0.0, 3.5];
+    let expected: Vec<f32> = data.iter().map(|x| -x).collect();
+    let src: Tensor<f32, B> = Tensor::from_vec(data, 4, dev)?;
+    let dst: Tensor<f32, B> = Tensor::zeros(4, dev)?;
+    dst.neg_(&src)?;
+    assert_approx_eq(&dst.to_vec()?, &expected, 1e-6);
+    Ok(())
+}
+test_both_backends!(test_neg, test_neg_impl);
+
+fn test_exp_log_compose_impl<B: Backend>(dev: &B) -> Result<()> {
+    let data = vec![0.5f32, 1.0, 2.0, 3.0];
+    let expected: Vec<f32> = data.iter().map(|x| x.exp().ln()).collect();
+    let src: Tensor<f32, B> = Tensor::from_vec(data, 4, dev)?;
+    let tmp: Tensor<f32, B> = Tensor::zeros(4, dev)?;
+    let dst: Tensor<f32, B> = Tensor::zeros(4, dev)?;
+    tmp.exp_(&src)?;
+    dst.log_(&tmp)?;
+    assert_approx_eq(&dst.to_vec()?, &expected, 1e-5);
+    Ok(())
+}
+test_both_backends!(test_exp_log_compose, test_exp_log_compose_impl);
+
+fn test_log_neg_roundtrip_impl<B: Backend>(dev: &B) -> Result<()> {
+    let data = vec![1.0f32, 2.0, 3.0, 4.0];
+    let src: Tensor<f32, B> = Tensor::from_vec(data.clone(), 4, dev)?;
+    let tmp: Tensor<f32, B> = Tensor::zeros(4, dev)?;
+    let dst: Tensor<f32, B> = Tensor::zeros(4, dev)?;
+    // exp(log(x)) should give back x
+    tmp.log_(&src)?;
+    dst.exp_(&tmp)?;
+    assert_approx_eq(&dst.to_vec()?, &data, 1e-5);
+    // neg(neg(x)) should give back x
+    tmp.neg_(&src)?;
+    dst.neg_(&tmp)?;
+    assert_approx_eq(&dst.to_vec()?, &data, 1e-6);
+    Ok(())
+}
+test_both_backends!(test_log_neg_roundtrip, test_log_neg_roundtrip_impl);
