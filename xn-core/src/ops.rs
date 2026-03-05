@@ -60,9 +60,9 @@ impl<B: Backend> Tensor<f32, B> {
         Ok(result)
     }
 
-    pub fn rand_uniform_like(&self) -> Result<Self> {
+    pub fn rand_uniform_like(&self, lo: f32, up: f32) -> Result<Self> {
         let result = unsafe { Tensor::alloc_uninit(self.shape.clone(), self.device()) }?;
-        result.rand_uniform_()?;
+        result.rand_uniform_(lo, up)?;
         Ok(result)
     }
 
@@ -73,10 +73,10 @@ impl<B: Backend> Tensor<f32, B> {
         Ok(result)
     }
 
-    pub fn rand_uniform(&self, shape: impl Into<crate::Shape>) -> Result<Self> {
+    pub fn rand_uniform(&self, shape: impl Into<crate::Shape>, lo: f32, up: f32) -> Result<Self> {
         let shape = shape.into();
         let result = unsafe { Tensor::alloc_uninit(shape, self.device()) }?;
-        result.rand_uniform_()?;
+        result.rand_uniform_(lo, up)?;
         Ok(result)
     }
 }

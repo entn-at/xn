@@ -417,9 +417,10 @@ impl crate::Backend for crate::CpuDevice {
         Ok(())
     }
 
-    fn rand_uniform(dst: &mut Self::Storage<f32>, len: usize) -> Result<()> {
+    fn rand_uniform(dst: &mut Self::Storage<f32>, len: usize, lo: f32, up: f32) -> Result<()> {
+        let range = up - lo;
         dst.par_iter_mut().take(len).for_each(|v| {
-            *v = rand::random::<f32>();
+            *v = rand::random::<f32>() * range + lo;
         });
         Ok(())
     }
