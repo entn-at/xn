@@ -209,10 +209,13 @@ impl<B: Backend> Tensor<f32, B> {
         Ok(())
     }
 
-    pub fn rand_uniform_(&self) -> Result<()> {
+    pub fn rand_uniform_(&self, lo: f32, up: f32) -> Result<()> {
+        if up < lo {
+            crate::bail!("rand_uniform: upper bound ({up}) must be >= lower bound ({lo})");
+        }
         let len = self.elem_count();
         let mut dst = self.storage_mut()?;
-        B::rand_uniform(&mut *dst, len)?;
+        B::rand_uniform(&mut *dst, len, lo, up)?;
         Ok(())
     }
 }

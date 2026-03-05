@@ -662,12 +662,19 @@ __device__ void inplace_sigmoid(const size_t numel, T * dst) {
     scale_add_op<TYPENAME>(numel, src, dst, scale, add); \
   } \
 
+#define INPLACE_SCALE_ADD_OP(TYPENAME, RUST_NAME) \
+  extern "C" __global__ void inplace_scale_add_##RUST_NAME( \
+      const size_t numel, TYPENAME *dst, const TYPENAME scale, const TYPENAME add) { \
+    scale_add_op<TYPENAME>(numel, dst, dst, scale, add); \
+  } \
+
 #define ALL_OPS(TYPENAME, RUST_NAME) \
   BINARY_OPS(TYPENAME, RUST_NAME) \
   ASSIGN_OPS(TYPENAME, RUST_NAME) \
   UNARY_OPS(TYPENAME, RUST_NAME) \
   INPLACE_UNARY_OPS(TYPENAME, RUST_NAME) \
   SCALE_ADD_OP(TYPENAME, RUST_NAME) \
+  INPLACE_SCALE_ADD_OP(TYPENAME, RUST_NAME) \
 
 #if __CUDA_ARCH__ >= 800
 ALL_OPS(__nv_bfloat16, bf16)

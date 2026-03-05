@@ -30,7 +30,7 @@ pub trait Backend: Sized + Clone + 'static + Sync + Send + std::fmt::Debug {
 
     fn fill<T: crate::WithDType>(dst: &mut Self::Storage<T>, elem: T, len: usize) -> Result<()>;
 
-    fn rand_uniform(dst: &mut Self::Storage<f32>, len: usize) -> Result<()>;
+    fn rand_uniform(dst: &mut Self::Storage<f32>, len: usize, lo: f32, up: f32) -> Result<()>;
 
     fn randn(dst: &mut Self::Storage<f32>, len: usize, mean: f32, std: f32) -> Result<()>;
 

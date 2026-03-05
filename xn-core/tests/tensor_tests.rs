@@ -1424,7 +1424,7 @@ test_both_backends!(test_to_preserves_shape, test_to_preserves_shape_impl);
 
 fn test_rand_uniform_impl<B: Backend>(dev: &B) -> Result<()> {
     let t: Tensor<f32, B> = Tensor::from_vec(vec![0.0; 1000], 1000, dev)?;
-    let r = t.rand_uniform_like()?;
+    let r = t.rand_uniform_like(0.0, 1.0)?;
     assert_eq!(r.dims(), &[1000]);
     let vals = r.to_vec()?;
     for &v in &vals {
@@ -1438,7 +1438,7 @@ test_both_backends!(test_rand_uniform, test_rand_uniform_impl);
 
 fn test_rand_uniform_shape_impl<B: Backend>(dev: &B) -> Result<()> {
     let t: Tensor<f32, B> = Tensor::from_vec(vec![0.0], 1, dev)?;
-    let r = t.rand_uniform((4, 8))?;
+    let r = t.rand_uniform((4, 8), 0.0, 1.0)?;
     assert_eq!(r.dims(), &[4, 8]);
     let vals = r.to_vec()?;
     assert_eq!(vals.len(), 32);
@@ -1448,6 +1448,28 @@ fn test_rand_uniform_shape_impl<B: Backend>(dev: &B) -> Result<()> {
     Ok(())
 }
 test_both_backends!(test_rand_uniform_shape, test_rand_uniform_shape_impl);
+
+fn test_rand_uniform_bounds_impl<B: Backend>(dev: &B) -> Result<()> {
+    let t: Tensor<f32, B> = Tensor::from_vec(vec![0.0; 1000], 1000, dev)?;
+    let r = t.rand_uniform_like(-5.0, 3.0)?;
+    let vals = r.to_vec()?;
+    for &v in &vals {
+        assert!((-5.0..=3.0).contains(&v), "rand_uniform value {v} out of [-5, 3]");
+    }
+    assert!(vals.windows(2).any(|w| w[0] != w[1]));
+    Ok(())
+}
+test_both_backends!(test_rand_uniform_bounds, test_rand_uniform_bounds_impl);
+
+fn test_rand_uniform_invalid_bounds_impl<B: Backend>(dev: &B) -> Result<()> {
+    let t: Tensor<f32, B> = Tensor::from_vec(vec![0.0; 10], 10, dev)?;
+    let r = t.rand_uniform_like(5.0, 2.0);
+    assert!(r.is_err());
+    let err_msg = r.unwrap_err().to_string();
+    assert!(err_msg.contains("upper bound"), "error should mention upper bound: {err_msg}");
+    Ok(())
+}
+test_both_backends!(test_rand_uniform_invalid_bounds, test_rand_uniform_invalid_bounds_impl);
 
 fn test_randn_impl<B: Backend>(dev: &B) -> Result<()> {
     let t: Tensor<f32, B> = Tensor::from_vec(vec![0.0; 1000], 1000, dev)?;

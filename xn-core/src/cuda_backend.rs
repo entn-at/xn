@@ -525,10 +525,24 @@ impl crate::Backend for Device {
         Ok(())
     }
 
-    fn rand_uniform(dst: &mut Self::Storage<f32>, len: usize) -> Result<()> {
-        let curand = dst.device.curand.lock().unwrap();
-        let mut dst = dst.data.slice_mut(..len);
-        curand.0.fill_with_uniform(&mut dst)?;
+    fn rand_uniform(dst: &mut Self::Storage<f32>, len: usize, lo: f32, up: f32) -> Result<()> {
+        {
+            let curand = dst.device.curand.lock().unwrap();
+            let mut dst_slice = dst.data.slice_mut(..len);
+            curand.0.fill_with_uniform(&mut dst_slice)?;
+        }
+        // Scale from [0, 1] to [lo, up]: v = v * (up - lo) + lo
+        if lo != 0.0 || up != 1.0 {
+            let range = up - lo;
+            let func = dst.device.get_func("inplace_scale_add_f32", PTXModule::Arithmetic)?;
+            let cfg = LaunchConfig::for_num_elems(len as u32);
+            let mut launch_args = dst.device.stream.launch_builder(&func);
+            launch_args.arg(&len);
+            launch_args.arg(&mut dst.data);
+            launch_args.arg(&range);
+            launch_args.arg(&lo);
+            unsafe { launch_args.launch(cfg) }?;
+        }
         Ok(())
     }
 
