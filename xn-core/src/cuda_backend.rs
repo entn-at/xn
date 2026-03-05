@@ -579,6 +579,9 @@ impl crate::Backend for Device {
         let (kname, alpha) = match op {
             UnaryOp::Cos => (kernel_name::<T>("inplace_cos"), None),
             UnaryOp::Sin => (kernel_name::<T>("inplace_sin"), None),
+            UnaryOp::Exp => (kernel_name::<T>("inplace_exp"), None),
+            UnaryOp::Log => (kernel_name::<T>("inplace_log"), None),
+            UnaryOp::Neg => (kernel_name::<T>("inplace_neg"), None),
             UnaryOp::Sqr => (kernel_name::<T>("inplace_sqr"), None),
             UnaryOp::Sqrt => (kernel_name::<T>("inplace_sqrt"), None),
             UnaryOp::Rsqrt => (kernel_name::<T>("inplace_rsqrt"), None),
@@ -635,6 +638,9 @@ impl crate::Backend for Device {
         let (kname, alpha) = match op {
             UnaryOp::Cos => (kernel_name::<T>("unary_cos"), None),
             UnaryOp::Sin => (kernel_name::<T>("unary_sin"), None),
+            UnaryOp::Exp => (kernel_name::<T>("unary_exp"), None),
+            UnaryOp::Log => (kernel_name::<T>("unary_log"), None),
+            UnaryOp::Neg => (kernel_name::<T>("unary_neg"), None),
             UnaryOp::Sqr => (kernel_name::<T>("unary_sqr"), None),
             UnaryOp::Sqrt => (kernel_name::<T>("unary_sqrt"), None),
             UnaryOp::Rsqrt => (kernel_name::<T>("unary_rsqrt"), None),

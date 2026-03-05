@@ -152,6 +152,9 @@ impl crate::Backend for crate::CpuDevice {
         match op {
             UnaryOp::Cos => apply_inplace_unary(&mut dst[..len], |v| *v = v.cos()),
             UnaryOp::Sin => apply_inplace_unary(&mut dst[..len], |v| *v = v.sin()),
+            UnaryOp::Exp => apply_inplace_unary(&mut dst[..len], |v| *v = v.exp()),
+            UnaryOp::Log => apply_inplace_unary(&mut dst[..len], |v| *v = v.ln()),
+            UnaryOp::Neg => apply_inplace_unary(&mut dst[..len], |v| *v = T::zero() - *v),
             UnaryOp::Sqr => apply_inplace_unary(&mut dst[..len], |v| *v = *v * *v),
             UnaryOp::Sqrt => apply_inplace_unary(&mut dst[..len], |v| *v = v.sqrt()),
             UnaryOp::Rsqrt => apply_inplace_unary(&mut dst[..len], |v| *v = T::one() / v.sqrt()),
@@ -193,6 +196,9 @@ impl crate::Backend for crate::CpuDevice {
         match op {
             UnaryOp::Cos => apply_unary(&mut dst[..len], &src[..len], |s| s.cos()),
             UnaryOp::Sin => apply_unary(&mut dst[..len], &src[..len], |s| s.sin()),
+            UnaryOp::Exp => apply_unary(&mut dst[..len], &src[..len], |s| s.exp()),
+            UnaryOp::Log => apply_unary(&mut dst[..len], &src[..len], |s| s.ln()),
+            UnaryOp::Neg => apply_unary(&mut dst[..len], &src[..len], |s| T::zero() - s),
             UnaryOp::Sqr => apply_unary(&mut dst[..len], &src[..len], |s| s * s),
             UnaryOp::Sqrt => apply_unary(&mut dst[..len], &src[..len], |s| s.sqrt()),
             UnaryOp::Rsqrt => apply_unary(&mut dst[..len], &src[..len], |s| T::one() / s.sqrt()),
