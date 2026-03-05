@@ -497,6 +497,21 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
         Ok(result)
     }
 
+    /// Argmax along dimension.
+    /// Returns i64 indices.
+    #[tracing::instrument(skip_all)]
+    pub fn argmax<D: Dim>(&self, dim: D) -> Result<Tensor<i64, B>> {
+        let dim = dim.to_index(self.shape(), "argmax dim")?;
+        let mut out_dims: Vec<usize> = self.dims().to_vec();
+        out_dims.remove(dim);
+        if out_dims.is_empty() {
+            out_dims.push(1);
+        }
+        let result: Tensor<i64, B> = unsafe { Tensor::alloc_uninit(out_dims, self.device()) }?;
+        Self::reduce_argmax_(&result, self, dim)?;
+        Ok(result)
+    }
+
     /// GELU activation with erf.
     #[tracing::instrument(skip_all)]
     pub fn gelu_erf(&self) -> Result<Self> {

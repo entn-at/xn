@@ -287,6 +287,37 @@ fn test_argmin_dim1_impl<B: Backend>(dev: &B) -> Result<()> {
 }
 test_both_backends!(test_argmin_dim1, test_argmin_dim1_impl);
 
+fn test_argmax_dim0_impl<B: Backend>(dev: &B) -> Result<()> {
+    // 3x4 tensor, argmax along dim 0 -> 4
+    let a: Tensor<f32, B> =
+        Tensor::from_vec(vec![1., 5., 3., 4., 8., 2., 7., 6., 9., 0., 1., 2.], (3, 4), dev)?;
+    // Column-wise argmax:
+    // col 0: argmax(1, 8, 9) = 2
+    // col 1: argmax(5, 2, 0) = 0
+    // col 2: argmax(3, 7, 1) = 1
+    // col 3: argmax(4, 6, 2) = 1
+    let b = a.argmax(0)?;
+    assert_eq!(b.dims(), &[4]);
+    assert_eq!(b.to_vec()?, vec![2i64, 0, 1, 1]);
+    Ok(())
+}
+test_both_backends!(test_argmax_dim0, test_argmax_dim0_impl);
+
+fn test_argmax_dim1_impl<B: Backend>(dev: &B) -> Result<()> {
+    // 3x4 tensor, argmax along dim 1 -> 3
+    let a: Tensor<f32, B> =
+        Tensor::from_vec(vec![1., 5., 3., 4., 8., 2., 7., 6., 9., 0., 1., 2.], (3, 4), dev)?;
+    // Row-wise argmax:
+    // row 0: argmax(1, 5, 3, 4) = 1
+    // row 1: argmax(8, 2, 7, 6) = 0
+    // row 2: argmax(9, 0, 1, 2) = 0
+    let b = a.argmax(1)?;
+    assert_eq!(b.dims(), &[3]);
+    assert_eq!(b.to_vec()?, vec![1i64, 0, 0]);
+    Ok(())
+}
+test_both_backends!(test_argmax_dim1, test_argmax_dim1_impl);
+
 fn test_max_3d_impl<B: Backend>(dev: &B) -> Result<()> {
     // 2x3x2 tensor, max along dim 1 -> 2x2
     let a: Tensor<f32, B> = Tensor::from_vec((1..=12).map(|x| x as f32).collect(), (2, 3, 2), dev)?;
