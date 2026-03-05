@@ -1,6 +1,7 @@
 pub mod embedding;
 pub mod linear;
 pub mod norm;
+pub mod sampling;
 pub mod var_builder;
 pub use var_builder::{Path, VB};
 

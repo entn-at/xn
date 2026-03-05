@@ -428,6 +428,18 @@ impl<T: WithDTypeF, B: Backend> TensorView<T, B> {
         self.apply_unary(UnaryOp::Cos)
     }
 
+    pub fn exp(&self) -> Result<Tensor<T, B>> {
+        self.apply_unary(UnaryOp::Exp)
+    }
+
+    pub fn log(&self) -> Result<Tensor<T, B>> {
+        self.apply_unary(UnaryOp::Log)
+    }
+
+    pub fn neg(&self) -> Result<Tensor<T, B>> {
+        self.apply_unary(UnaryOp::Neg)
+    }
+
     pub fn sin(&self) -> Result<Tensor<T, B>> {
         self.apply_unary(UnaryOp::Sin)
     }
