@@ -24,6 +24,110 @@ template<> __device__ __forceinline__ __nv_bfloat16 from_float(float v) { return
 #endif
 
 // ============================================================================
+// Typed math helpers - avoid unnecessary float conversions
+// ============================================================================
+
+// neg
+template<typename T> __device__ __forceinline__ T t_neg(T v) { return from_float<T>(-to_float(v)); }
+template<> __device__ __forceinline__ float t_neg(float v) { return -v; }
+template<> __device__ __forceinline__ double t_neg(double v) { return -v; }
+template<> __device__ __forceinline__ __half t_neg(__half v) { return __hneg(v); }
+#if __CUDA_ARCH__ >= 800
+template<> __device__ __forceinline__ __nv_bfloat16 t_neg(__nv_bfloat16 v) { return __hneg(v); }
+#endif
+
+// abs
+template<typename T> __device__ __forceinline__ T t_abs(T v) { return from_float<T>(fabsf(to_float(v))); }
+template<> __device__ __forceinline__ float t_abs(float v) { return fabsf(v); }
+template<> __device__ __forceinline__ double t_abs(double v) { return fabs(v); }
+template<> __device__ __forceinline__ __half t_abs(__half v) { return __habs(v); }
+#if __CUDA_ARCH__ >= 800
+template<> __device__ __forceinline__ __nv_bfloat16 t_abs(__nv_bfloat16 v) { return __habs(v); }
+#endif
+
+// cos
+template<typename T> __device__ __forceinline__ T t_cos(T v) { return from_float<T>(cosf(to_float(v))); }
+template<> __device__ __forceinline__ float t_cos(float v) { return cosf(v); }
+template<> __device__ __forceinline__ double t_cos(double v) { return cos(v); }
+template<> __device__ __forceinline__ __half t_cos(__half v) { return hcos(v); }
+#if __CUDA_ARCH__ >= 800
+template<> __device__ __forceinline__ __nv_bfloat16 t_cos(__nv_bfloat16 v) { return hcos(v); }
+#endif
+
+// sin
+template<typename T> __device__ __forceinline__ T t_sin(T v) { return from_float<T>(sinf(to_float(v))); }
+template<> __device__ __forceinline__ float t_sin(float v) { return sinf(v); }
+template<> __device__ __forceinline__ double t_sin(double v) { return sin(v); }
+template<> __device__ __forceinline__ __half t_sin(__half v) { return hsin(v); }
+#if __CUDA_ARCH__ >= 800
+template<> __device__ __forceinline__ __nv_bfloat16 t_sin(__nv_bfloat16 v) { return hsin(v); }
+#endif
+
+// exp
+template<typename T> __device__ __forceinline__ T t_exp(T v) { return from_float<T>(expf(to_float(v))); }
+template<> __device__ __forceinline__ float t_exp(float v) { return expf(v); }
+template<> __device__ __forceinline__ double t_exp(double v) { return exp(v); }
+template<> __device__ __forceinline__ __half t_exp(__half v) { return hexp(v); }
+#if __CUDA_ARCH__ >= 800
+template<> __device__ __forceinline__ __nv_bfloat16 t_exp(__nv_bfloat16 v) { return hexp(v); }
+#endif
+
+// log
+template<typename T> __device__ __forceinline__ T t_log(T v) { return from_float<T>(logf(to_float(v))); }
+template<> __device__ __forceinline__ float t_log(float v) { return logf(v); }
+template<> __device__ __forceinline__ double t_log(double v) { return log(v); }
+template<> __device__ __forceinline__ __half t_log(__half v) { return hlog(v); }
+#if __CUDA_ARCH__ >= 800
+template<> __device__ __forceinline__ __nv_bfloat16 t_log(__nv_bfloat16 v) { return hlog(v); }
+#endif
+
+// sqrt
+template<typename T> __device__ __forceinline__ T t_sqrt(T v) { return from_float<T>(sqrtf(to_float(v))); }
+template<> __device__ __forceinline__ float t_sqrt(float v) { return sqrtf(v); }
+template<> __device__ __forceinline__ double t_sqrt(double v) { return sqrt(v); }
+template<> __device__ __forceinline__ __half t_sqrt(__half v) { return hsqrt(v); }
+#if __CUDA_ARCH__ >= 800
+template<> __device__ __forceinline__ __nv_bfloat16 t_sqrt(__nv_bfloat16 v) { return hsqrt(v); }
+#endif
+
+// rsqrt
+template<typename T> __device__ __forceinline__ T t_rsqrt(T v) { return from_float<T>(rsqrtf(to_float(v))); }
+template<> __device__ __forceinline__ float t_rsqrt(float v) { return rsqrtf(v); }
+template<> __device__ __forceinline__ double t_rsqrt(double v) { return rsqrt(v); }
+template<> __device__ __forceinline__ __half t_rsqrt(__half v) { return hrsqrt(v); }
+#if __CUDA_ARCH__ >= 800
+template<> __device__ __forceinline__ __nv_bfloat16 t_rsqrt(__nv_bfloat16 v) { return hrsqrt(v); }
+#endif
+
+// tanh
+template<typename T> __device__ __forceinline__ T t_tanh(T v) { return from_float<T>(tanhf(to_float(v))); }
+template<> __device__ __forceinline__ float t_tanh(float v) { return tanhf(v); }
+template<> __device__ __forceinline__ double t_tanh(double v) { return tanh(v); }
+
+// erf
+template<typename T> __device__ __forceinline__ T t_erf(T v) { return from_float<T>(erff(to_float(v))); }
+template<> __device__ __forceinline__ float t_erf(float v) { return erff(v); }
+template<> __device__ __forceinline__ double t_erf(double v) { return erf(v); }
+
+// zero constant
+template<typename T> __device__ __forceinline__ T t_zero();
+template<> __device__ __forceinline__ float t_zero() { return 0.0f; }
+template<> __device__ __forceinline__ double t_zero() { return 0.0; }
+template<> __device__ __forceinline__ __half t_zero() { return __float2half(0.0f); }
+#if __CUDA_ARCH__ >= 800
+template<> __device__ __forceinline__ __nv_bfloat16 t_zero() { return __float2bfloat16(0.0f); }
+#endif
+
+// one constant
+template<typename T> __device__ __forceinline__ T t_one();
+template<> __device__ __forceinline__ float t_one() { return 1.0f; }
+template<> __device__ __forceinline__ double t_one() { return 1.0; }
+template<> __device__ __forceinline__ __half t_one() { return __float2half(1.0f); }
+#if __CUDA_ARCH__ >= 800
+template<> __device__ __forceinline__ __nv_bfloat16 t_one() { return __float2bfloat16(1.0f); }
+#endif
+
+// ============================================================================
 // Scale-add operation (out-of-place: dst = src * scale + add)
 // ============================================================================
 
@@ -142,35 +246,35 @@ template <typename T>
 __device__ void unary_cos(const size_t numel, const T * src, T * dst) {
     const int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= numel) return;
-    dst[idx] = from_float<T>(cosf(to_float(src[idx])));
+    dst[idx] = t_cos(src[idx]);
 }
 
 template <typename T>
 __device__ void unary_sin(const size_t numel, const T * src, T * dst) {
     const int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= numel) return;
-    dst[idx] = from_float<T>(sinf(to_float(src[idx])));
+    dst[idx] = t_sin(src[idx]);
 }
 
 template <typename T>
 __device__ void unary_exp(const size_t numel, const T * src, T * dst) {
     const int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= numel) return;
-    dst[idx] = from_float<T>(expf(to_float(src[idx])));
+    dst[idx] = t_exp(src[idx]);
 }
 
 template <typename T>
 __device__ void unary_log(const size_t numel, const T * src, T * dst) {
     const int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= numel) return;
-    dst[idx] = from_float<T>(logf(to_float(src[idx])));
+    dst[idx] = t_log(src[idx]);
 }
 
 template <typename T>
 __device__ void unary_neg(const size_t numel, const T * src, T * dst) {
     const int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= numel) return;
-    dst[idx] = from_float<T>(-to_float(src[idx]));
+    dst[idx] = t_neg(src[idx]);
 }
 
 template <typename T>
@@ -185,73 +289,73 @@ template <typename T>
 __device__ void unary_sqrt(const size_t numel, const T * src, T * dst) {
     const int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= numel) return;
-    dst[idx] = from_float<T>(sqrtf(to_float(src[idx])));
+    dst[idx] = t_sqrt(src[idx]);
 }
 
 template <typename T>
 __device__ void unary_rsqrt(const size_t numel, const T * src, T * dst) {
     const int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= numel) return;
-    dst[idx] = from_float<T>(rsqrtf(to_float(src[idx])));
+    dst[idx] = t_rsqrt(src[idx]);
 }
 
 template <typename T>
 __device__ void unary_abs(const size_t numel, const T * src, T * dst) {
     const int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= numel) return;
-    dst[idx] = from_float<T>(fabsf(to_float(src[idx])));
+    dst[idx] = t_abs(src[idx]);
 }
 
 template <typename T>
 __device__ void unary_gelu_erf(const size_t numel, const T * src, T * dst) {
     const int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= numel) return;
-    float x = to_float(src[idx]);
     // GELU(x) = x * 0.5 * (1 + erf(x / sqrt(2)))
-    float result = x * 0.5f * (1.0f + erff(x * 0.7071067811865476f));
-    dst[idx] = from_float<T>(result);
+    T x = src[idx];
+    T half = t_one<T>() / (t_one<T>() + t_one<T>());
+    dst[idx] = x * half * (t_one<T>() + t_erf(x * from_float<T>(0.7071067811865476f)));
 }
 
 template <typename T>
 __device__ void unary_elu(const size_t numel, const T * src, T * dst, float alpha) {
     const int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= numel) return;
-    float x = to_float(src[idx]);
-    float result = (x > 0.0f) ? x : alpha * (expf(x) - 1.0f);
-    dst[idx] = from_float<T>(result);
+    T x = src[idx];
+    T zero = t_zero<T>();
+    dst[idx] = (x > zero) ? x : from_float<T>(alpha) * (t_exp(x) - t_one<T>());
 }
 
 template <typename T>
 __device__ void unary_relu(const size_t numel, const T * src, T * dst) {
     const int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= numel) return;
-    float x = to_float(src[idx]);
-    dst[idx] = from_float<T>((x > 0.0f) ? x : 0.0f);
+    T x = src[idx];
+    T zero = t_zero<T>();
+    dst[idx] = (x > zero) ? x : zero;
 }
 
 template <typename T>
 __device__ void unary_silu(const size_t numel, const T * src, T * dst) {
     const int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= numel) return;
-    float x = to_float(src[idx]);
     // SiLU(x) = x * sigmoid(x) = x / (1 + exp(-x))
-    float result = x / (1.0f + expf(-x));
-    dst[idx] = from_float<T>(result);
+    T x = src[idx];
+    dst[idx] = x / (t_one<T>() + t_exp(t_neg(x)));
 }
 
 template <typename T>
 __device__ void unary_tanh(const size_t numel, const T * src, T * dst) {
     const int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= numel) return;
-    dst[idx] = from_float<T>(tanhf(to_float(src[idx])));
+    dst[idx] = t_tanh(src[idx]);
 }
 
 template <typename T>
 __device__ void unary_sigmoid(const size_t numel, const T * src, T * dst) {
     const int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= numel) return;
-    float x = to_float(src[idx]);
-    dst[idx] = from_float<T>(1.0f / (1.0f + expf(-x)));
+    T x = src[idx];
+    dst[idx] = t_one<T>() / (t_one<T>() + t_exp(t_neg(x)));
 }
 
 // ============================================================================
@@ -262,35 +366,35 @@ template <typename T>
 __device__ void inplace_cos(const size_t numel, T * dst) {
     const int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= numel) return;
-    dst[idx] = from_float<T>(cosf(to_float(dst[idx])));
+    dst[idx] = t_cos(dst[idx]);
 }
 
 template <typename T>
 __device__ void inplace_sin(const size_t numel, T * dst) {
     const int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= numel) return;
-    dst[idx] = from_float<T>(sinf(to_float(dst[idx])));
+    dst[idx] = t_sin(dst[idx]);
 }
 
 template <typename T>
 __device__ void inplace_exp(const size_t numel, T * dst) {
     const int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= numel) return;
-    dst[idx] = from_float<T>(expf(to_float(dst[idx])));
+    dst[idx] = t_exp(dst[idx]);
 }
 
 template <typename T>
 __device__ void inplace_log(const size_t numel, T * dst) {
     const int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= numel) return;
-    dst[idx] = from_float<T>(logf(to_float(dst[idx])));
+    dst[idx] = t_log(dst[idx]);
 }
 
 template <typename T>
 __device__ void inplace_neg(const size_t numel, T * dst) {
     const int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= numel) return;
-    dst[idx] = from_float<T>(-to_float(dst[idx]));
+    dst[idx] = t_neg(dst[idx]);
 }
 
 template <typename T>
@@ -305,71 +409,71 @@ template <typename T>
 __device__ void inplace_sqrt(const size_t numel, T * dst) {
     const int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= numel) return;
-    dst[idx] = from_float<T>(sqrtf(to_float(dst[idx])));
+    dst[idx] = t_sqrt(dst[idx]);
 }
 
 template <typename T>
 __device__ void inplace_rsqrt(const size_t numel, T * dst) {
     const int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= numel) return;
-    dst[idx] = from_float<T>(rsqrtf(to_float(dst[idx])));
+    dst[idx] = t_rsqrt(dst[idx]);
 }
 
 template <typename T>
 __device__ void inplace_abs(const size_t numel, T * dst) {
     const int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= numel) return;
-    dst[idx] = from_float<T>(fabsf(to_float(dst[idx])));
+    dst[idx] = t_abs(dst[idx]);
 }
 
 template <typename T>
 __device__ void inplace_gelu_erf(const size_t numel, T * dst) {
     const int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= numel) return;
-    float x = to_float(dst[idx]);
-    float result = x * 0.5f * (1.0f + erff(x * 0.7071067811865476f));
-    dst[idx] = from_float<T>(result);
+    T x = dst[idx];
+    T half = t_one<T>() / (t_one<T>() + t_one<T>());
+    dst[idx] = x * half * (t_one<T>() + t_erf(x * from_float<T>(0.7071067811865476f)));
 }
 
 template <typename T>
 __device__ void inplace_elu(const size_t numel, T * dst, float alpha) {
     const int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= numel) return;
-    float x = to_float(dst[idx]);
-    float result = (x > 0.0f) ? x : alpha * (expf(x) - 1.0f);
-    dst[idx] = from_float<T>(result);
+    T x = dst[idx];
+    T zero = t_zero<T>();
+    dst[idx] = (x > zero) ? x : from_float<T>(alpha) * (t_exp(x) - t_one<T>());
 }
 
 template <typename T>
 __device__ void inplace_relu(const size_t numel, T * dst) {
     const int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= numel) return;
-    float x = to_float(dst[idx]);
-    dst[idx] = from_float<T>((x > 0.0f) ? x : 0.0f);
+    T x = dst[idx];
+    T zero = t_zero<T>();
+    dst[idx] = (x > zero) ? x : zero;
 }
 
 template <typename T>
 __device__ void inplace_silu(const size_t numel, T * dst) {
     const int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= numel) return;
-    float x = to_float(dst[idx]);
-    float result = x / (1.0f + expf(-x));
-    dst[idx] = from_float<T>(result);
+    T x = dst[idx];
+    dst[idx] = x / (t_one<T>() + t_exp(t_neg(x)));
 }
 
 template <typename T>
 __device__ void inplace_tanh(const size_t numel, T * dst) {
     const int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= numel) return;
-    dst[idx] = from_float<T>(tanhf(to_float(dst[idx])));
+    dst[idx] = t_tanh(dst[idx]);
 }
 
 template <typename T>
 __device__ void inplace_sigmoid(const size_t numel, T * dst) {
     const int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= numel) return;
-    float x = to_float(dst[idx]);
-    dst[idx] = from_float<T>(1.0f / (1.0f + expf(-x)));
+    T x = dst[idx];
+    dst[idx] = t_one<T>() / (t_one<T>() + t_exp(t_neg(x)));
 }
 
 // ============================================================================
