@@ -415,6 +415,27 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
         Ok(result)
     }
 
+    /// Element-wise negation.
+    pub fn neg(&self) -> Result<Self> {
+        let result = unsafe { Tensor::alloc_uninit(self.shape.clone(), self.device()) }?;
+        result.neg_(self)?;
+        Ok(result)
+    }
+
+    /// Element-wise log.
+    pub fn log(&self) -> Result<Self> {
+        let result = unsafe { Tensor::alloc_uninit(self.shape.clone(), self.device()) }?;
+        result.log_(self)?;
+        Ok(result)
+    }
+
+    /// Element-wise exponential.
+    pub fn exp(&self) -> Result<Self> {
+        let result = unsafe { Tensor::alloc_uninit(self.shape.clone(), self.device()) }?;
+        result.exp_(self)?;
+        Ok(result)
+    }
+
     /// Sum along dimensions, keeping the dimensions (with size 1).
     #[tracing::instrument(skip_all)]
     pub fn sum_keepdim(&self, dims: impl Into<Vec<usize>>) -> Result<Self> {
