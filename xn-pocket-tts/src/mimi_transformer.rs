@@ -44,22 +44,27 @@ impl<T: WithDTypeF, B: Backend> KvCache<T, B> {
             _ => (new_k.clone(), new_v.clone()),
         };
 
-        let seq_len = k.dim(2)?;
-        let (k, v) = if seq_len > self.max_seq_len {
-            let trim = seq_len - self.max_seq_len;
-            (
-                k.narrow(2, trim..trim + self.max_seq_len)?.contiguous()?,
-                v.narrow(2, trim..trim + self.max_seq_len)?.contiguous()?,
-            )
-        } else {
-            (k, v)
-        };
-
         let new_tokens = new_k.dim(2)?;
         self.absolute_offset += new_tokens;
         self.k = Some(k.clone());
         self.v = Some(v.clone());
         Ok((k, v))
+    }
+
+    pub fn trim(&mut self) -> Result<()> {
+        let (k, v) = match (&self.k, &self.v) {
+            (Some(k), Some(v)) => (k, v),
+            _ => return Ok(()),
+        };
+        let seq_len = k.dim(2)?;
+        if seq_len > self.max_seq_len {
+            let trim = seq_len - self.max_seq_len;
+            let k = k.narrow(2, trim..trim + self.max_seq_len)?.contiguous()?;
+            let v = v.narrow(2, trim..trim + self.max_seq_len)?.contiguous()?;
+            self.k = Some(k);
+            self.v = Some(v);
+        };
+        Ok(())
     }
 }
 
@@ -117,6 +122,7 @@ impl<T: WithDTypeF, B: Backend> MimiStreamingMultiheadAttention<T, B> {
         query: &Tensor<T, B>,
         rope: &RotaryEmbedding<T, B>,
         state: &mut KvCache<T, B>,
+        mask: Option<&Tensor<T, B>>,
     ) -> Result<Tensor<T, B>> {
         let (b, t, _) = query.dims3()?;
         let d = self.embed_dim / self.num_heads;
@@ -142,9 +148,14 @@ impl<T: WithDTypeF, B: Backend> MimiStreamingMultiheadAttention<T, B> {
         // Attention with causal mask
         let scale = T::from_f32(1.0 / (d as f32).sqrt());
         let attn = q.matmul_t(&k)?.scale(scale)?;
-        let attn = attn.apply_causality_mask(offset)?;
+        let attn = match mask {
+            Some(m) => attn.broadcast_add(m)?,
+            None => attn,
+        };
         let attn = attn.softmax()?;
         let x = attn.matmul(&v)?;
+
+        state.trim()?;
 
         let x = x.transpose(1, 2)?.reshape((b, t, self.embed_dim))?;
         self.out_proj.forward(&x)
@@ -237,12 +248,13 @@ impl<T: WithDTypeF, B: Backend> StreamingTransformerLayer<T, B> {
         x: &Tensor<T, B>,
         rope: &RotaryEmbedding<T, B>,
         state: &mut LayerAttentionState<T, B>,
+        mask: Option<&Tensor<T, B>>,
     ) -> Result<Tensor<T, B>> {
         // Self-attention block: x + layer_scale_1(attn(norm1(x)))
         let norm1 = self.norm1.forward(x)?;
         let mut attn_out = match (&self.self_attn, state) {
             (AttentionKind::Mimi(attn), LayerAttentionState::Mimi(cache)) => {
-                attn.forward(&norm1, rope, cache)?
+                attn.forward(&norm1, rope, cache, mask)?
             }
             (AttentionKind::FlowLm(attn), LayerAttentionState::FlowLm(mha_state)) => {
                 attn.forward(&norm1, rope, mha_state)?
@@ -325,8 +337,34 @@ impl<T: WithDTypeF, B: Backend> StreamingTransformer<T, B> {
         state: &mut StreamingTransformerState<T, B>,
     ) -> Result<Tensor<T, B>> {
         let mut x = x.clone();
+        let mask = match state.layer_states.first() {
+            Some(LayerAttentionState::Mimi(kv_cache)) => {
+                let (_, seq_len, _) = x.dims3()?;
+                let kv_seq_len = kv_cache.current_seq_len()?;
+                let context = kv_cache.max_seq_len;
+                // Causal mask of shape (1, 1, seq_len, kv_seq_len + seq_len) with -inf in upper triangle
+                let mask_data = (0..seq_len)
+                    .flat_map(|seq_idx| {
+                        let seq_idx = seq_idx + kv_seq_len;
+                        (0..kv_seq_len + seq_len).map(move |attn_idx| {
+                            if seq_idx.saturating_sub(context) <= attn_idx && attn_idx <= seq_idx {
+                                T::from_f32(0.0)
+                            } else {
+                                T::from_f32(f32::NEG_INFINITY)
+                            }
+                        })
+                    })
+                    .collect::<Vec<_>>();
+                let mask =
+                    Tensor::from_vec(mask_data, (1, 1, seq_len, kv_seq_len + seq_len), x.device())?;
+                Some(mask)
+            }
+            // For the FlowLm model, attention is handled directly in the forward layer.
+            Some(LayerAttentionState::FlowLm(_)) => None,
+            _ => None,
+        };
         for (layer, layer_state) in self.layers.iter().zip(state.layer_states.iter_mut()) {
-            x = layer.forward(&x, &self.rope, layer_state)?;
+            x = layer.forward(&x, &self.rope, layer_state, mask.as_ref())?;
         }
         Ok(x)
     }
