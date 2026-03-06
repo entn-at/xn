@@ -3,7 +3,7 @@ use xn::nn::{Linear, var_builder::Path};
 use xn::{Backend, Result, Tensor, WithDTypeF};
 
 pub struct LUTConditioner<T: WithDTypeF, B: Backend> {
-    pub tokenizer: Box<dyn Tokenizer + Send + Sync>,
+    pub tokenizer: Option<Box<dyn Tokenizer + Send + Sync>>,
     embed: Tensor<T, B>,
     learnt_padding: Option<Tensor<T, B>>,
     output_proj: Option<Linear<T, B>>,
@@ -15,13 +15,13 @@ impl<T: WithDTypeF, B: Backend> LUTConditioner<T, B> {
     pub fn load(
         vb: &Path<B>,
         n_bins: usize,
-        tokenizer: Box<dyn Tokenizer + Send + Sync>,
+        tokenizer: Option<Box<dyn Tokenizer + Send + Sync>>,
         dim: usize,
         output_dim: usize,
     ) -> Result<Self> {
         let embed = vb.tensor("embed.weight", (n_bins + 1, dim))?;
         let learnt_padding = if vb.contains("learnt_padding") {
-            Some(vb.tensor("learnt_padding", (1, 1, dim))?)
+            Some(vb.tensor("learnt_padding", (1, 1, output_dim))?)
         } else {
             None
         };
@@ -34,8 +34,11 @@ impl<T: WithDTypeF, B: Backend> LUTConditioner<T, B> {
     }
 
     /// Tokenize text and return token ids.
-    pub fn tokenize(&self, text: &str) -> Vec<u32> {
-        self.tokenizer.encode(text)
+    pub fn tokenize(&self, text: &str) -> Result<Vec<u32>> {
+        match self.tokenizer.as_ref() {
+            Some(tokenizer) => Ok(tokenizer.encode(text)),
+            None => xn::bail!("No tokenizer available for LUTConditioner"),
+        }
     }
 
     /// Get embeddings for token ids. Returns [1, num_tokens, dim].

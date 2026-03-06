@@ -278,7 +278,7 @@ fn run_for_device<Dev: Backend>(args: Args, dev: Dev) -> Result<()> {
     let mut all_tokens = vec![];
     for chunk in chunks.iter() {
         let (text, frames_after_eos) = prepare_text_prompt(chunk);
-        let tokens = model.flow_lm.conditioner.tokenize(&text);
+        let tokens = model.flow_lm.conditioner.tokenize(&text)?;
         let num_tokens = tokens.len();
         tracing::info!(?text, ?num_tokens, "processing text");
         let max_frames = ((num_tokens as f64 / 3.0 + 2.0) * 12.5).ceil() as usize;

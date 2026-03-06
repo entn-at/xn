@@ -53,6 +53,7 @@ pub struct FlowLMConfig {
 /// Transformer-based flow language model.
 pub struct FlowLM<T: WithDTypeF, B: Backend> {
     pub conditioner: LUTConditioner<T, B>,
+    pub num_speakers: Option<Tensor<T, B>>,
     flow_net: SimpleMLPAdaLN<T, B>,
     pub transformer: StreamingTransformer<T, B>,
     pub emb_std: Tensor<T, B>,
@@ -80,10 +81,20 @@ impl<T: WithDTypeF, B: Backend> FlowLM<T, B> {
         let conditioner = LUTConditioner::load(
             &vb.pp("conditioner"),
             cfg.n_bins,
-            tokenizer,
+            Some(tokenizer),
             cfg.lut_dim,
             cfg.d_model,
         )?;
+        let num_speakers = {
+            let vb = vb.pp("condition_provider.conditioners.num_speakers");
+            if vb.contains("embed.weight") {
+                let conditioner = LUTConditioner::load(&vb, 31, None, 16, 1024)?;
+                let condition_tensor = conditioner.embed_tokens(&[1])?;
+                Some(condition_tensor)
+            } else {
+                None
+            }
+        };
 
         let flow_net = SimpleMLPAdaLN::load(
             &vb.pp("flow_net"),
@@ -117,6 +128,7 @@ impl<T: WithDTypeF, B: Backend> FlowLM<T, B> {
 
         Ok(Self {
             conditioner,
+            num_speakers,
             flow_net,
             transformer,
             emb_std,
@@ -149,6 +161,10 @@ impl<T: WithDTypeF, B: Backend> FlowLM<T, B> {
         state: &mut FlowLMState<T, B>,
     ) -> Result<Tensor<T, B>> {
         let input = Tensor::cat(&[text_embeddings, input], 1)?;
+        let input = match self.num_speakers.as_ref() {
+            Some(ns) => input.broadcast_add(ns)?,
+            None => input,
+        };
         let out = self.transformer.forward(&input, &mut state.transformer_state)?;
         let out = out.layer_norm(&self.out_norm_weight, &self.out_norm_bias, 1e-5)?;
         // Remove prefix, keep only last seq_len positions
