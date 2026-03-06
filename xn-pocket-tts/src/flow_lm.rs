@@ -88,7 +88,7 @@ impl<T: WithDTypeF, B: Backend> FlowLM<T, B> {
         let num_speakers = {
             let vb = vb.pp("condition_provider.conditioners.num_speakers");
             if vb.contains("embed.weight") {
-                let conditioner = LUTConditioner::load(&vb, 31, None, 16, 1024)?;
+                let conditioner = LUTConditioner::load(&vb, 31, None, 16, cfg.d_model)?;
                 let condition_tensor = conditioner.embed_tokens(&[1])?;
                 Some(condition_tensor)
             } else {
