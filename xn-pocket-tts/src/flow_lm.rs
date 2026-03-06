@@ -160,11 +160,11 @@ impl<T: WithDTypeF, B: Backend> FlowLM<T, B> {
         seq_len: usize,
         state: &mut FlowLMState<T, B>,
     ) -> Result<Tensor<T, B>> {
-        let input = Tensor::cat(&[text_embeddings, input], 1)?;
         let input = match self.num_speakers.as_ref() {
             Some(ns) => input.broadcast_add(ns)?,
-            None => input,
+            None => input.clone(),
         };
+        let input = Tensor::cat(&[text_embeddings, &input], 1)?;
         let out = self.transformer.forward(&input, &mut state.transformer_state)?;
         let out = out.layer_norm(&self.out_norm_weight, &self.out_norm_bias, 1e-5)?;
         // Remove prefix, keep only last seq_len positions
